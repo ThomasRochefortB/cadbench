@@ -4,10 +4,11 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>CADBench - LLM FreeCAD Benchmark</title>
+  <link rel="icon" href="logo.png" type="image/png">
   <style>
     body {
       font-family: Arial, sans-serif;
-      max-width: 800px;
+      max-width: 1200px;
       margin: 0 auto;
       padding: 2rem;
       background: #f4f4f4;
@@ -27,6 +28,7 @@
       color: #f8f8f2;
       padding: 1rem;
       overflow-x: auto;
+      max-height: 300px;
     }
     .error-message {
       background: #ffebee;
@@ -42,14 +44,35 @@
       border: 1px solid #ddd;
       margin-top: 0.5rem;
     }
-    #modelViewer {
+    .modelViewer {
       width: 100%;
       height: 400px;
       border: 1px solid #ccc;
       margin-top: 1rem;
       background: #fff;
     }
-    #viewerContainer {
+    .comparison-container {
+      display: flex;
+      gap: 20px;
+      margin-top: 20px;
+    }
+    .model-column {
+      flex: 1;
+      width: 50%;
+    }
+    .model-select {
+      width: 100%;
+      padding: 8px;
+      margin-bottom: 12px;
+    }
+    .viewerContainer {
+      display: none;
+    }
+    .loading {
+      text-align: center;
+      padding: 2rem;
+      font-size: 18px;
+      color: #666;
       display: none;
     }
   </style>
@@ -63,98 +86,175 @@
   </script>
 </head>
 <body>
-  <div style="text-align: center; margin-bottom: 1rem;">
+  <h1 style="display: flex; align-items: center; gap: 1rem; justify-content: center;">
     <img src="logo.png" alt="CADBench Logo" width="150">
-  </div>
-  <h1>CADBench</h1>
-  <p>Enter a prompt describing the CAD model you want to generate. The system will ask an LLM to produce a FreeCAD script.</p>
+    Compare LLM CAD Generation
+  </h1>
+  <p>Enter a prompt describing the CAD model you want to generate, then select two models to compare.</p>
 
   <form id="promptForm">
     <textarea id="promptInput" placeholder="e.g., Create a 20mm x 20mm cube with a centered 10mm cylindrical hole."></textarea>
-    <button type="submit">Generate</button>
+    
+    <div class="comparison-container">
+      <div class="model-column">
+        <select id="model1Select" class="model-select">
+          <!-- Models will be populated dynamically -->
+          <option value="">Loading models...</option>
+        </select>
+      </div>
+      <div class="model-column">
+        <select id="model2Select" class="model-select">
+          <!-- Models will be populated dynamically -->
+          <option value="">Loading models...</option>
+        </select>
+      </div>
+    </div>
+    
+    <button type="submit">Generate & Compare</button>
   </form>
 
-  <div id="viewerContainer">
-    <h2>3D Model</h2>
-    <div id="modelViewer"></div>
+  <div id="loading" class="loading">
+    Generating models, please wait...
   </div>
 
-  <div id="errorContainer" style="display: none;">
-    <h2>LLM Errors</h2>
-    <div id="errorMessage" class="error-message"></div>
+  <div class="comparison-container">
+    <div class="model-column">
+      <h2 id="model1Title">Model 1</h2>
+      <div id="viewerContainer1" class="viewerContainer">
+        <div id="modelViewer1" class="modelViewer"></div>
+      </div>
+      <div id="errorContainer1" style="display: none;">
+        <div id="errorMessage1" class="error-message"></div>
+      </div>
+      <h3>FreeCAD Script</h3>
+      <pre id="scriptOutput1">(script will appear here)</pre>
+      <p id="downloadLinkContainer1">(No file generated)</p>
+    </div>
+    
+    <div class="model-column">
+      <h2 id="model2Title">Model 2</h2>
+      <div id="viewerContainer2" class="viewerContainer">
+        <div id="modelViewer2" class="modelViewer"></div>
+      </div>
+      <div id="errorContainer2" style="display: none;">
+        <div id="errorMessage2" class="error-message"></div>
+      </div>
+      <h3>FreeCAD Script</h3>
+      <pre id="scriptOutput2">(script will appear here)</pre>
+      <p id="downloadLinkContainer2">(No file generated)</p>
+    </div>
   </div>
-
-  <h2>Generated FreeCAD Script</h2>
-  <pre id="scriptOutput">(script will appear here)</pre>
-
-  <h2>Download Model</h2>
-  <p id="downloadLinkContainer">(No file generated)</p>
 
   <script type="module">
     import * as THREE from 'three';
     import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
     import { STLLoader } from 'three/addons/loaders/STLLoader.js';
 
-    // Setup 3D viewer
-    let scene, camera, renderer, controls;
+    // Load available models from API
+    async function loadModels() {
+      try {
+        const response = await fetch('/api/models');
+        const models = await response.json();
+        
+        // Clear loading placeholders
+        document.getElementById('model1Select').innerHTML = '';
+        document.getElementById('model2Select').innerHTML = '';
+        
+        // Populate both dropdown menus
+        for (const model of models) {
+          const option1 = document.createElement('option');
+          option1.value = model.id;
+          option1.textContent = model.name;
+          // Set default selection for first dropdown
+          if (model.id === 'gpt-4o-mini') {
+            option1.selected = true;
+          }
+          
+          const option2 = document.createElement('option');
+          option2.value = model.id;
+          option2.textContent = model.name;
+          
+          document.getElementById('model1Select').appendChild(option1);
+          document.getElementById('model2Select').appendChild(option2);
+        }
+        
+        // Set a different default for the second dropdown
+        if (models.length > 1) {
+          document.getElementById('model2Select').selectedIndex = 1;
+        }
+      } catch (error) {
+        console.error('Error loading models:', error);
+        document.getElementById('model1Select').innerHTML = '<option value="">Error loading models</option>';
+        document.getElementById('model2Select').innerHTML = '<option value="">Error loading models</option>';
+      }
+    }
+
+    // Setup 3D viewers
+    let scenes = [null, null];
+    let cameras = [null, null];
+    let renderers = [null, null];
+    let controls = [null, null];
     
-    function initViewer() {
-      const container = document.getElementById('modelViewer');
+    function initViewer(index) {
+      const containerId = `modelViewer${index+1}`;
+      const container = document.getElementById(containerId);
       
       // Create scene
-      scene = new THREE.Scene();
-      scene.background = new THREE.Color(0xf0f0f0);
+      scenes[index] = new THREE.Scene();
+      scenes[index].background = new THREE.Color(0xf0f0f0);
       
       // Setup camera
-      camera = new THREE.PerspectiveCamera(75, container.clientWidth / container.clientHeight, 0.1, 1000);
-      camera.position.z = 50;
+      cameras[index] = new THREE.PerspectiveCamera(75, container.clientWidth / container.clientHeight, 0.1, 1000);
+      cameras[index].position.z = 50;
       
       // Setup renderer
-      renderer = new THREE.WebGLRenderer({ antialias: true });
-      renderer.setSize(container.clientWidth, container.clientHeight);
-      container.appendChild(renderer.domElement);
+      renderers[index] = new THREE.WebGLRenderer({ antialias: true });
+      renderers[index].setSize(container.clientWidth, container.clientHeight);
+      container.appendChild(renderers[index].domElement);
       
       // Add lights
       const ambientLight = new THREE.AmbientLight(0x404040, 3);
-      scene.add(ambientLight);
+      scenes[index].add(ambientLight);
       
       const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
       directionalLight.position.set(1, 1, 1);
-      scene.add(directionalLight);
+      scenes[index].add(directionalLight);
       
       // Add orbit controls
-      controls = new OrbitControls(camera, renderer.domElement);
-      controls.enableDamping = true;
-      controls.dampingFactor = 0.25;
+      controls[index] = new OrbitControls(cameras[index], renderers[index].domElement);
+      controls[index].enableDamping = true;
+      controls[index].dampingFactor = 0.25;
       
       // Auto-resize handler
       window.addEventListener('resize', () => {
         const width = container.clientWidth;
         const height = container.clientHeight;
-        renderer.setSize(width, height);
-        camera.aspect = width / height;
-        camera.updateProjectionMatrix();
+        renderers[index].setSize(width, height);
+        cameras[index].aspect = width / height;
+        cameras[index].updateProjectionMatrix();
       });
       
       // Start animation loop
-      animate();
+      animate(index);
     }
     
-    function animate() {
-      requestAnimationFrame(animate);
-      controls.update();
-      renderer.render(scene, camera);
+    function animate(index) {
+      requestAnimationFrame(() => animate(index));
+      if (controls[index]) controls[index].update();
+      if (renderers[index] && scenes[index] && cameras[index]) {
+        renderers[index].render(scenes[index], cameras[index]);
+      }
     }
     
     // Load STL model
-    function loadSTL(url) {
-      document.getElementById('viewerContainer').style.display = 'block';
+    function loadSTL(url, index) {
+      document.getElementById(`viewerContainer${index+1}`).style.display = 'block';
       
-      if (!scene) {
-        initViewer();
+      if (!scenes[index]) {
+        initViewer(index);
       } else {
         // Clear existing model
-        scene.children = scene.children.filter(child => 
+        scenes[index].children = scenes[index].children.filter(child => 
           child instanceof THREE.Light || child instanceof THREE.AmbientLight || child instanceof THREE.DirectionalLight);
       }
       
@@ -170,94 +270,130 @@
         const box = new THREE.Box3().setFromObject(new THREE.Mesh(geometry));
         const size = box.getSize(new THREE.Vector3()).length();
         const distance = size * 1.5;
-        camera.position.set(0, 0, distance);
-        controls.update();
+        cameras[index].position.set(0, 0, distance);
+        controls[index].update();
         
         // Create mesh with material
         const material = new THREE.MeshStandardMaterial({
-          color: 0x1a6fc1,
+          color: 0xe0e0e0,
           metalness: 0.3,
           roughness: 0.5,
         });
         const mesh = new THREE.Mesh(geometry, material);
         
         // Add to scene
-        scene.add(mesh);
+        scenes[index].add(mesh);
       });
     }
 
     // Form handling
     const form = document.getElementById("promptForm");
     const promptInput = document.getElementById("promptInput");
-    const scriptOutput = document.getElementById("scriptOutput");
-    const downloadContainer = document.getElementById("downloadLinkContainer");
-    const errorContainer = document.getElementById("errorContainer");
-    const errorMessage = document.getElementById("errorMessage");
+    const model1Select = document.getElementById("model1Select");
+    const model2Select = document.getElementById("model2Select");
+    const loading = document.getElementById("loading");
+
+    // Load models when page loads
+    loadModels();
 
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
       const prompt = promptInput.value.trim();
       if (!prompt) return;
 
-      scriptOutput.textContent = "Generating...";
-      downloadContainer.textContent = "";
-      document.getElementById('viewerContainer').style.display = 'none';
-      errorContainer.style.display = 'none';
+      // Get selected models
+      const model1 = model1Select.value;
+      const model2 = model2Select.value;
+      
+      // Update model titles
+      document.getElementById("model1Title").textContent = model1Select.options[model1Select.selectedIndex].text;
+      document.getElementById("model2Title").textContent = model2Select.options[model2Select.selectedIndex].text;
+      
+      // Reset UI
+      document.getElementById("scriptOutput1").textContent = "Generating...";
+      document.getElementById("scriptOutput2").textContent = "Generating...";
+      document.getElementById("downloadLinkContainer1").textContent = "";
+      document.getElementById("downloadLinkContainer2").textContent = "";
+      document.getElementById("viewerContainer1").style.display = "none";
+      document.getElementById("viewerContainer2").style.display = "none";
+      document.getElementById("errorContainer1").style.display = "none";
+      document.getElementById("errorContainer2").style.display = "none";
+      loading.style.display = "block";
 
       try {
         const res = await fetch("/api/generate", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ prompt }),
+          body: JSON.stringify({ prompt, model1, model2 }),
         });
+        
         const data = await res.json();
-        if (data.error) throw new Error(data.error);
-
-        scriptOutput.textContent = data.script;
+        loading.style.display = "none";
         
-        if (data.error) {
-          errorContainer.style.display = 'block';
-          let errorContent = data.error;
-          
-          if (data.error_details) {
-            errorContent += `<div class="error-details">${data.error_details}</div>`;
-          }
-          
-          errorMessage.innerHTML = errorContent;
+        if (!data.results || data.results.length !== 2) {
+          throw new Error("Invalid response from server");
         }
         
-        if (data.fcstd_url) {
-          const links = [];
+        // Process results for each model
+        data.results.forEach((result, index) => {
+          const scriptOutput = document.getElementById(`scriptOutput${index+1}`);
+          const downloadContainer = document.getElementById(`downloadLinkContainer${index+1}`);
+          const errorContainer = document.getElementById(`errorContainer${index+1}`);
+          const errorMessage = document.getElementById(`errorMessage${index+1}`);
           
-          // Add FCStd download link
-          const fcstdLink = document.createElement("a");
-          fcstdLink.href = data.fcstd_url;
-          fcstdLink.textContent = "Download output.FCStd";
-          links.push(fcstdLink);
+          // Display script if present
+          if (result.script) {
+            scriptOutput.textContent = result.script;
+          } else {
+            scriptOutput.textContent = "No script was generated";
+          }
           
-          // Add STL download link if available
-          if (data.stl_url) {
-            links.push(document.createTextNode(" | "));
-            const stlLink = document.createElement("a");
-            stlLink.href = data.stl_url;
-            stlLink.textContent = "Download output.stl";
-            links.push(stlLink);
+          // Handle error messages
+          if (result.error) {
+            errorContainer.style.display = 'block';
+            let errorContent = result.error;
             
-            // Load the STL in the viewer
-            loadSTL(data.stl_url);
+            if (result.error_details) {
+              errorContent += `<div class="error-details">${result.error_details}</div>`;
+            }
+            
+            errorMessage.innerHTML = errorContent;
           }
           
-          downloadContainer.innerHTML = "";
-          links.forEach(link => downloadContainer.appendChild(link));
-        } else {
-          downloadContainer.textContent = "FreeCAD not available on server; only script generated.";
-        }
+          // Handle download links
+          if (result.fcstd_url) {
+            const links = [];
+            
+            // Add FCStd download link
+            const fcstdLink = document.createElement("a");
+            fcstdLink.href = result.fcstd_url;
+            fcstdLink.textContent = "Download FCStd";
+            links.push(fcstdLink);
+            
+            // Add STL download link if available
+            if (result.stl_url) {
+              links.push(document.createTextNode(" | "));
+              const stlLink = document.createElement("a");
+              stlLink.href = result.stl_url;
+              stlLink.textContent = "Download STL";
+              links.push(stlLink);
+              
+              // Load the STL in the viewer
+              loadSTL(result.stl_url, index);
+            }
+            
+            downloadContainer.innerHTML = "";
+            links.forEach(link => downloadContainer.appendChild(link));
+          } else {
+            downloadContainer.textContent = result.error ? "Generation failed" : "FreeCAD not available";
+          }
+        });
       } catch (err) {
-        scriptOutput.textContent = "Error: " + err.message;
+        loading.style.display = "none";
+        document.getElementById("scriptOutput1").textContent = "Error: " + err.message;
+        document.getElementById("scriptOutput2").textContent = "Error: " + err.message;
       }
     });
-
-    window.loadSTL = loadSTL;
   </script>
 </body>
 </html> 

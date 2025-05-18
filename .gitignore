@@ -175,3 +175,6 @@ cython_debug/
 
 # Local environment variables
 .env
+
+*.stl
+*.fcstd
