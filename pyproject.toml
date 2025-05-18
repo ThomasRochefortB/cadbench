@@ -23,4 +23,5 @@ build-backend = "hatchling.build"
 include = [
     "app.py",
     "static/",
+    "prompts.py",
 ] 
