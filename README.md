@@ -4,7 +4,7 @@
   <img src="static/logo.png" alt="CADBench Logo" width="200"/>
 </p>
 
-Source code for the cadbench LLM benchmark
+Source code for the CADBench LLM benchmark
 
 ## Getting Started
 
