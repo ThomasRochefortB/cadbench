@@ -212,13 +212,23 @@
       renderers[index].setSize(container.clientWidth, container.clientHeight);
       container.appendChild(renderers[index].domElement);
       
-      // Add lights
-      const ambientLight = new THREE.AmbientLight(0x404040, 3);
+      // Add lights with even illumination from all sides
+      const ambientLight = new THREE.AmbientLight(0xffffff, 1.5);
       scenes[index].add(ambientLight);
       
-      const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
-      directionalLight.position.set(1, 1, 1);
-      scenes[index].add(directionalLight);
+      // Add directional lights from multiple angles for more even lighting
+      const directions = [
+        [1, 1, 1],
+        [-1, 1, 1],
+        [1, -1, 1],
+        [-1, -1, 1]
+      ];
+      
+      directions.forEach(dir => {
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 0.5);
+        directionalLight.position.set(...dir);
+        scenes[index].add(directionalLight);
+      });
       
       // Add orbit controls
       controls[index] = new OrbitControls(cameras[index], renderers[index].domElement);
@@ -281,8 +291,9 @@
         });
         const mesh = new THREE.Mesh(geometry, material);
         
-        // Add to scene
+        // Add the solid mesh to the scene
         scenes[index].add(mesh);
+        // scenes[index].add(wireframe);
       });
     }
 
