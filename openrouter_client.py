@@ -55,6 +55,9 @@ def generate_text_with_openrouter_tools(
         message = choice.get("message") or {}
         tool_calls = message.get("tool_calls") or []
         if not tool_calls:
+            finish_reason = choice.get("finish_reason") or choice.get("native_finish_reason")
+            if finish_reason == "tool_calls":
+                raise RuntimeError("OpenRouter returned tool_calls finish reason without tool call details")
             return ToolCompletionResult(
                 extract_openrouter_output_text({"choices": [choice]}),
                 tool_trace,
@@ -83,9 +86,6 @@ def generate_text_with_openrouter_tools(
     response = create_openrouter_chat_completion(
         model_name,
         messages,
-        tools=tools,
-        tool_choice="none",
-        parallel_tool_calls=False,
     )
     return ToolCompletionResult(
         extract_openrouter_output_text(response.json()),
@@ -169,7 +169,7 @@ def is_openrouter_rate_limit_error(error: Exception | str) -> bool:
 def openrouter_rate_limit_guidance(error: Exception | str) -> str:
     return (
         f"{error}. The selected OpenRouter provider is rate-limited right now. "
-        "Try Baseline mode, choose a different free model, or wait and retry."
+        "Choose a different model, switch to a paid endpoint, or wait and retry."
     )
 
 

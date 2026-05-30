@@ -3,15 +3,26 @@ import re
 import tokenize
 
 
+_CODE_FENCE_RE = re.compile(r"```(?:python|py)?\s*\n(.*?)```", re.IGNORECASE | re.DOTALL)
+_PYTHON_START_RE = re.compile(
+    r"\b(?:import\s+(?:FreeCAD|Part|Mesh|math)|from\s+(?:FreeCAD|Part|Mesh|math)\s+import)\b"
+    r"|^doc\s*=\s*(?:App|FreeCAD)\.newDocument\(",
+    re.MULTILINE,
+)
+
+
 def strip_markdown_code_fence(script: str) -> str:
     script = script.strip()
-    if script.startswith("```") and "```" in script[3:]:
-        first_line_end = script.find("\n")
-        if first_line_end == -1:
-            return ""
-        script = script[first_line_end + 1 :]
-        if "```" in script:
-            script = script[: script.rindex("```")]
+    fenced_blocks = _CODE_FENCE_RE.findall(script)
+    if fenced_blocks:
+        return _trim_to_python_start(fenced_blocks[0].strip())
+    return _trim_to_python_start(script)
+
+
+def _trim_to_python_start(script: str) -> str:
+    match = _PYTHON_START_RE.search(script)
+    if match:
+        return script[match.start() :].strip()
     return script.strip()
 
 
@@ -33,7 +44,21 @@ def prepare_freecad_script(script: str, file_suffix: str) -> str:
             cleaned_lines.append(line)
 
     script = "\n".join(cleaned_lines)
-    return ensure_save_footer(script, file_suffix)
+    script = ensure_save_footer(script, file_suffix)
+    validate_python_syntax(script)
+    return script
+
+
+def validate_python_syntax(script: str) -> None:
+    try:
+        compile(script, "generated_freecad.py", "exec")
+    except SyntaxError as exc:
+        detail = exc.msg
+        if exc.lineno:
+            detail = f"{detail} at line {exc.lineno}"
+        if exc.text:
+            detail = f"{detail}: {exc.text.strip()}"
+        raise ValueError(f"Generated FreeCAD script is not valid Python ({detail})") from exc
 
 
 def _normalize_save_call(line: str, file_suffix: str) -> str:

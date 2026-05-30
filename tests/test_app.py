@@ -5,6 +5,10 @@ import freecad_context
 import freecad_validation
 
 
+def assisted_result(script: str, tool_trace: list[dict] | None = None) -> cadbench.mcp_assistant.MCPAssistedResult:
+    return cadbench.mcp_assistant.MCPAssistedResult(script=script, tool_trace=tool_trace or [])
+
+
 def test_prepare_freecad_script_strips_fences_rewrites_output_and_removes_gui_import():
     script = """```python
 import FreeCADGui
@@ -18,6 +22,63 @@ doc.save("/data/output.FCStd")
     assert "# [removed] import FreeCADGui" in prepared
     assert '# [removed] App.setActiveDocument("20mmCube")' in prepared
     assert 'doc.saveAs("/data/output_model1.FCStd")' in prepared
+
+
+def test_prepare_freecad_script_extracts_fenced_code_after_prose():
+    script = """Perfect! Here is the corrected script:
+
+```python
+import FreeCAD as App
+import Part
+
+doc = App.newDocument("CADModel")
+box = Part.makeBox(1, 1, 1)
+Part.show(box)
+doc.saveAs("/data/output.FCStd")
+```
+"""
+
+    prepared = cadbench.prepare_freecad_script(script, "_model1")
+
+    assert "Perfect!" not in prepared
+    assert "```" not in prepared
+    assert prepared.startswith("import FreeCAD as App")
+    assert 'doc.saveAs("/data/output_model1.FCStd")' in prepared
+
+
+def test_prepare_freecad_script_trims_prose_glued_to_import():
+    script = (
+        "For road bike gears, I'll create a chainring profile.import FreeCAD as App\n"
+        "import Part\n"
+        'doc = App.newDocument("CADModel")\n'
+        "box = Part.makeBox(1, 1, 1)\n"
+        "Part.show(box)\n"
+        'doc.saveAs("/data/output.FCStd")'
+    )
+
+    prepared = cadbench.prepare_freecad_script(script, "_model1")
+
+    assert "For road bike gears" not in prepared
+    assert prepared.startswith("import FreeCAD as App")
+    assert 'doc.saveAs("/data/output_model1.FCStd")' in prepared
+
+
+def test_prepare_freecad_script_rejects_truncated_python_before_freecad_runs():
+    script = """import FreeCAD as App
+import Part
+
+doc = App.newDocument("CADModel")
+pts = []
+pts.append(App.Vector(r_
+"""
+
+    try:
+        cadbench.prepare_freecad_script(script, "_model1")
+    except ValueError as exc:
+        assert "Generated FreeCAD script is not valid Python" in str(exc)
+        assert "line" in str(exc)
+    else:
+        raise AssertionError("Expected ValueError")
 
 
 def test_prepare_freecad_script_makes_generated_fillets_non_fatal():
@@ -65,7 +126,11 @@ def test_generate_rejects_empty_prompt():
 
 
 def test_models_endpoint_lists_current_default_and_free_openrouter_models(monkeypatch):
-    monkeypatch.setattr(cadbench, "fetch_openrouter_free_models", lambda: cadbench.fallback_model_info())
+    monkeypatch.setattr(
+        cadbench.model_catalog,
+        "fetch_openrouter_models",
+        lambda free_only=True: cadbench.fallback_model_info(),
+    )
     client = cadbench.app.test_client()
 
     response = client.get("/api/models")
@@ -74,6 +139,32 @@ def test_models_endpoint_lists_current_default_and_free_openrouter_models(monkey
     model_ids = {model["id"] for model in response.get_json()}
     assert cadbench.DEFAULT_MODEL in model_ids
     assert all(model_id.endswith(":free") for model_id in model_ids)
+
+
+def test_models_endpoint_can_include_paid_openrouter_models(monkeypatch):
+    captured = {}
+
+    def fake_models(free_only=True):
+        captured["free_only"] = free_only
+        return [
+            {
+                "id": "provider/paid-model",
+                "name": "Paid Model",
+                "provider": "provider",
+                "context_length": 8192,
+                "free": False,
+            }
+        ]
+
+    monkeypatch.setattr(cadbench.model_catalog, "fetch_openrouter_models", fake_models)
+    client = cadbench.app.test_client()
+
+    response = client.get("/api/models?free_only=false")
+
+    assert response.status_code == 200
+    assert captured["free_only"] is False
+    assert response.get_json()[0]["id"] == "provider/paid-model"
+    assert response.get_json()[0]["free"] is False
 
 
 def test_extract_openrouter_output_text_from_chat_completion_shape():
@@ -195,6 +286,100 @@ def test_generate_text_with_openrouter_tools_executes_requested_tool(monkeypatch
     assert captured_payloads[1]["messages"][2]["role"] == "tool"
 
 
+def test_generate_text_with_openrouter_tools_omits_tool_choice_for_final_answer(monkeypatch):
+    captured_payloads = []
+    responses = [
+        {
+            "choices": [
+                {
+                    "message": {
+                        "role": "assistant",
+                        "content": None,
+                        "tool_calls": [
+                            {
+                                "id": "call_1",
+                                "type": "function",
+                                "function": {
+                                    "name": "search_docs",
+                                    "arguments": '{"query": "box hole"}',
+                                },
+                            }
+                        ],
+                    },
+                    "finish_reason": "tool_calls",
+                }
+            ]
+        },
+        {"choices": [{"message": {"content": "print('done')"}}]},
+    ]
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        captured_payloads.append(json)
+        request = cadbench.httpx.Request("POST", url)
+        return cadbench.httpx.Response(200, request=request, json=responses.pop(0))
+
+    tools = [
+        {
+            "type": "function",
+            "function": {
+                "name": "search_docs",
+                "description": "Search docs",
+                "parameters": {"type": "object", "properties": {"query": {"type": "string"}}},
+            },
+        }
+    ]
+
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
+    monkeypatch.setattr(cadbench.httpx, "post", fake_post)
+
+    result = cadbench.generate_text_with_openrouter_tools(
+        "prompt",
+        cadbench.DEFAULT_MODEL,
+        tools,
+        lambda name, args: {"success": True, "name": name, "query": args["query"]},
+        max_tool_rounds=1,
+    )
+
+    assert result.content == "print('done')"
+    assert captured_payloads[0]["tool_choice"] == "auto"
+    assert "tools" in captured_payloads[0]
+    assert "tool_choice" not in captured_payloads[1]
+    assert "tools" not in captured_payloads[1]
+    assert "parallel_tool_calls" not in captured_payloads[1]
+
+
+def test_generate_text_with_openrouter_tools_reports_missing_tool_call_details(monkeypatch):
+    def fake_post(url, headers=None, json=None, timeout=None):
+        request = cadbench.httpx.Request("POST", url)
+        return cadbench.httpx.Response(
+            200,
+            request=request,
+            json={
+                "choices": [
+                    {
+                        "message": {"role": "assistant", "content": None},
+                        "finish_reason": "tool_calls",
+                    }
+                ]
+            },
+        )
+
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
+    monkeypatch.setattr(cadbench.httpx, "post", fake_post)
+
+    try:
+        cadbench.generate_text_with_openrouter_tools(
+            "prompt",
+            cadbench.DEFAULT_MODEL,
+            [],
+            lambda _name, _args: {"success": True},
+        )
+    except RuntimeError as exc:
+        assert str(exc) == "OpenRouter returned tool_calls finish reason without tool call details"
+    else:
+        raise AssertionError("Expected RuntimeError")
+
+
 def test_format_openrouter_http_error_uses_provider_message():
     response = cadbench.httpx.Response(
         404,
@@ -224,8 +409,8 @@ def test_openrouter_rate_limit_guidance_is_actionable():
         "OpenRouter rate limit: Provider returned error"
     )
 
-    assert "Try Baseline mode" in message
-    assert "choose a different free model" in message
+    assert "Choose a different model" in message
+    assert "switch to a paid endpoint" in message
 
 
 def test_fetch_openrouter_free_models_uses_user_models_when_key_is_set(monkeypatch):
@@ -270,8 +455,43 @@ def test_fetch_openrouter_free_models_uses_user_models_when_key_is_set(monkeypat
             "provider": "provider",
             "context_length": None,
             "free": True,
+            "pricing": {"prompt": "0", "completion": "0"},
         }
     ]
+
+
+def test_fetch_openrouter_models_can_include_paid_models(monkeypatch):
+    def fake_get(url, headers=None, params=None, timeout=None):
+        request = cadbench.httpx.Request("GET", url)
+        return cadbench.httpx.Response(
+            200,
+            request=request,
+            json={
+                "data": [
+                    {
+                        "id": "provider/free-model:free",
+                        "name": "Free Model",
+                        "pricing": {"prompt": "0", "completion": "0"},
+                        "architecture": {"output_modalities": ["text"]},
+                    },
+                    {
+                        "id": "provider/paid-model",
+                        "name": "Paid Model",
+                        "pricing": {"prompt": "0.000001", "completion": "0.000002"},
+                        "architecture": {"output_modalities": ["text"]},
+                    },
+                ]
+            },
+        )
+
+    monkeypatch.setattr(cadbench.httpx, "get", fake_get)
+
+    models = cadbench.fetch_openrouter_models(free_only=False)
+
+    assert [model["id"] for model in models] == ["provider/free-model:free", "provider/paid-model"]
+    assert models[0]["free"] is True
+    assert models[1]["free"] is False
+    assert models[1]["pricing"] == {"prompt": "0.000001", "completion": "0.000002"}
 
 
 def test_is_free_openrouter_model_requires_free_text_output():
@@ -303,9 +523,9 @@ def test_is_free_openrouter_model_filters_tiny_context_windows():
 
 def test_get_available_model_info_merges_live_free_models_with_fallback(monkeypatch):
     monkeypatch.setattr(
-        cadbench,
-        "fetch_openrouter_free_models",
-        lambda: [{"id": "provider/live-model:free", "name": "Live Free Model"}],
+        cadbench.model_catalog,
+        "fetch_openrouter_models",
+        lambda free_only=True: [{"id": "provider/live-model:free", "name": "Live Free Model"}],
     )
 
     model_ids = {model["id"] for model in cadbench.get_available_model_info()}
@@ -315,10 +535,11 @@ def test_get_available_model_info_merges_live_free_models_with_fallback(monkeypa
 
 
 def test_generate_falls_back_invalid_models_and_uses_request_scoped_artifacts(monkeypatch):
-    def fake_generate_code(user_prompt, model_name):
+    def fake_generate_code(user_prompt, model_name, artifact_dir):
         assert user_prompt == "make a cube"
         assert model_name == cadbench.DEFAULT_MODEL
-        return 'doc.save("/data/output.FCStd")'
+        assert artifact_dir.name in {"mcp_model1_initial", "mcp_model2_initial"}
+        return assisted_result('doc.save("/data/output.FCStd")')
 
     def fake_execute(script, file_suffix="", artifact_dir=None):
         assert "output_model" in script
@@ -328,7 +549,7 @@ def test_generate_falls_back_invalid_models_and_uses_request_scoped_artifacts(mo
             artifact_dir / f"output{file_suffix}.stl",
         )
 
-    monkeypatch.setattr(cadbench, "generate_code_with_llm", fake_generate_code)
+    monkeypatch.setattr(cadbench, "generate_code_with_mcp_assistance", fake_generate_code)
     monkeypatch.setattr(cadbench, "try_execute_freecad_script", fake_execute)
     monkeypatch.setattr(cadbench, "cleanup_old_artifacts", lambda: None)
 
@@ -351,10 +572,11 @@ def test_generate_falls_back_invalid_models_and_uses_request_scoped_artifacts(mo
 def test_generate_defaults_to_one_model_when_second_model_is_omitted(monkeypatch):
     generated_models = []
 
-    def fake_generate_code(user_prompt, model_name):
+    def fake_generate_code(user_prompt, model_name, artifact_dir):
         assert user_prompt == "make a cube"
         generated_models.append(model_name)
-        return 'doc.save("/data/output.FCStd")'
+        assert artifact_dir.name == "mcp_model1_initial"
+        return assisted_result('doc.save("/data/output.FCStd")')
 
     def fake_execute(script, file_suffix="", artifact_dir=None):
         assert file_suffix == "_model1"
@@ -364,7 +586,7 @@ def test_generate_defaults_to_one_model_when_second_model_is_omitted(monkeypatch
             artifact_dir / f"output{file_suffix}.stl",
         )
 
-    monkeypatch.setattr(cadbench, "generate_code_with_llm", fake_generate_code)
+    monkeypatch.setattr(cadbench, "generate_code_with_mcp_assistance", fake_generate_code)
     monkeypatch.setattr(cadbench, "try_execute_freecad_script", fake_execute)
     monkeypatch.setattr(cadbench, "cleanup_old_artifacts", lambda: None)
 
@@ -382,8 +604,16 @@ def test_generate_defaults_to_one_model_when_second_model_is_omitted(monkeypatch
 
 
 def test_build_model_result_reports_freecad_execution_details(monkeypatch, tmp_path):
-    monkeypatch.setattr(cadbench, "generate_code_with_llm", lambda _prompt, _model: "print('ok')")
-    monkeypatch.setattr(cadbench, "repair_code_with_llm", lambda *_args: "print('still broken')")
+    monkeypatch.setattr(
+        cadbench,
+        "generate_code_with_mcp_assistance",
+        lambda _prompt, _model, _artifact_dir: assisted_result("print('ok')"),
+    )
+    monkeypatch.setattr(
+        cadbench,
+        "repair_code_with_mcp_assistance",
+        lambda *_args: assisted_result("print('still broken')"),
+    )
     monkeypatch.setattr(
         cadbench,
         "try_execute_freecad_script",
@@ -399,9 +629,41 @@ def test_build_model_result_reports_freecad_execution_details(monkeypatch, tmp_p
     assert result["error_details"] == "Traceback\nException: failed"
 
 
+def test_build_model_result_reports_generated_python_syntax_errors_before_freecad(monkeypatch, tmp_path):
+    execute_called = False
+
+    monkeypatch.setattr(
+        cadbench,
+        "generate_code_with_mcp_assistance",
+        lambda _prompt, _model, _artifact_dir: assisted_result("import FreeCAD as App\npts.append(App.Vector(r_"),
+    )
+
+    def fake_execute(*_args, **_kwargs):
+        nonlocal execute_called
+        execute_called = True
+        return cadbench.FreeCADExecutionResult(None)
+
+    monkeypatch.setattr(cadbench, "try_execute_freecad_script", fake_execute)
+
+    result = cadbench.build_model_result("prompt", cadbench.DEFAULT_MODEL, "_model1", tmp_path)
+
+    assert execute_called is False
+    assert result["script"] == "import FreeCAD as App\npts.append(App.Vector(r_"
+    assert result["error"].startswith("Generated script was not valid Python:")
+    assert "Generated script failed Python syntax validation" in result["stages"]
+
+
 def test_build_model_result_reports_missing_fcstd_save(monkeypatch, tmp_path):
-    monkeypatch.setattr(cadbench, "generate_code_with_llm", lambda _prompt, _model: "print('ok')")
-    monkeypatch.setattr(cadbench, "repair_code_with_llm", lambda *_args: "print('still broken')")
+    monkeypatch.setattr(
+        cadbench,
+        "generate_code_with_mcp_assistance",
+        lambda _prompt, _model, _artifact_dir: assisted_result("print('ok')"),
+    )
+    monkeypatch.setattr(
+        cadbench,
+        "repair_code_with_mcp_assistance",
+        lambda *_args: assisted_result("print('still broken')"),
+    )
     monkeypatch.setattr(
         cadbench,
         "try_execute_freecad_script",
@@ -421,8 +683,16 @@ def test_build_model_result_reports_missing_fcstd_save(monkeypatch, tmp_path):
 def test_build_model_result_repairs_failed_freecad_script(monkeypatch, tmp_path):
     calls = []
 
-    monkeypatch.setattr(cadbench, "generate_code_with_llm", lambda _prompt, _model: "broken()")
-    monkeypatch.setattr(cadbench, "repair_code_with_llm", lambda *_args: 'doc.saveAs("/data/output.FCStd")')
+    monkeypatch.setattr(
+        cadbench,
+        "generate_code_with_mcp_assistance",
+        lambda _prompt, _model, _artifact_dir: assisted_result("broken()"),
+    )
+    monkeypatch.setattr(
+        cadbench,
+        "repair_code_with_mcp_assistance",
+        lambda *_args: assisted_result('doc.saveAs("/data/output.FCStd")'),
+    )
 
     def fake_execute(script, file_suffix="", artifact_dir=None):
         calls.append(script)
@@ -440,7 +710,11 @@ def test_build_model_result_repairs_failed_freecad_script(monkeypatch, tmp_path)
 
 
 def test_build_model_result_reports_docker_start_failure(monkeypatch, tmp_path):
-    monkeypatch.setattr(cadbench, "generate_code_with_llm", lambda _prompt, _model: "print('ok')")
+    monkeypatch.setattr(
+        cadbench,
+        "generate_code_with_mcp_assistance",
+        lambda _prompt, _model, _artifact_dir: assisted_result("print('ok')"),
+    )
     monkeypatch.setattr(
         cadbench,
         "try_execute_freecad_script",
@@ -459,14 +733,14 @@ def test_build_model_result_reports_docker_start_failure(monkeypatch, tmp_path):
     assert "Cannot connect to the Docker daemon" in result["error_details"]
 
 
-def test_build_model_result_mcp_mode_uses_assisted_generation(monkeypatch, tmp_path):
+def test_build_model_result_uses_assisted_generation(monkeypatch, tmp_path):
     def fake_assisted_generation(user_prompt, model_name, artifact_dir):
         assert user_prompt == "make a box with a hole"
         assert model_name == cadbench.DEFAULT_MODEL
         assert artifact_dir.name == "mcp_model1_initial"
-        return cadbench.mcp_assistant.MCPAssistedResult(
-            script='doc.saveAs("/data/output.FCStd")',
-            tool_trace=[{"name": "search_docs", "result": {"success": True}}],
+        return assisted_result(
+            'doc.saveAs("/data/output.FCStd")',
+            [{"name": "search_docs", "result": {"success": True}}],
         )
 
     monkeypatch.setattr(cadbench, "generate_code_with_mcp_assistance", fake_assisted_generation)
@@ -484,7 +758,6 @@ def test_build_model_result_mcp_mode_uses_assisted_generation(monkeypatch, tmp_p
         cadbench.DEFAULT_MODEL,
         "_model1",
         tmp_path,
-        "mcp",
     )
 
     assert result["mode"] == "mcp"

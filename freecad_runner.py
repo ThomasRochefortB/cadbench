@@ -59,7 +59,7 @@ def try_execute_freecad_script(
     with tempfile.TemporaryDirectory() as tmpdir:
         tmpdir_path = Path(tmpdir)
         script_path = tmpdir_path / "gen.py"
-        script_path.write_text(script)
+        script_path.write_text(_script_with_inline_stl_export(script, file_suffix))
 
         try:
             process = _run_freecad_script(tmpdir_path, "gen.py", timeout=60)
@@ -78,7 +78,7 @@ def try_execute_freecad_script(
 
         out_file = _resolve_fcstd_output(tmpdir_path, file_suffix)
         if out_file.exists() and out_file.stat().st_size > 0:
-            stl_final_path = _export_stl(tmpdir_path, file_suffix, artifact_dir)
+            stl_final_path = _move_stl(tmpdir_path, file_suffix, artifact_dir)
             final_path = artifact_dir / f"output{file_suffix}.FCStd"
             return _move_fcstd(out_file, final_path, stl_final_path, error_info)
 
@@ -114,26 +114,44 @@ def _resolve_fcstd_output(tmpdir_path: Path, file_suffix: str) -> Path:
     return out_file
 
 
-def _export_stl(tmpdir_path: Path, file_suffix: str, artifact_dir: Path) -> Path | None:
-    stl_out_file = tmpdir_path / f"output{file_suffix}.stl"
-    stl_script = (
-        f"import FreeCAD\n"
-        f"doc = FreeCAD.open('/data/output{file_suffix}.FCStd')\n"
-        f"import Mesh\n"
-        f"Mesh.export(doc.Objects, '/data/output{file_suffix}.stl')\n"
+def _script_with_inline_stl_export(script: str, file_suffix: str) -> str:
+    stl_path = f"/data/output{file_suffix}.stl"
+    return "\n".join(
+        [
+            script.rstrip(),
+            "",
+            "# [added] Export STL preview in the same FreeCAD run.",
+            "try:",
+            "    import FreeCAD as _cadbench_freecad",
+            "    import Mesh as _cadbench_mesh",
+            "    _cadbench_doc = _cadbench_freecad.ActiveDocument",
+            "    if _cadbench_doc is not None:",
+            "        _cadbench_doc.recompute()",
+            "        _cadbench_objects = []",
+            "        for _cadbench_obj in _cadbench_doc.Objects:",
+            "            try:",
+            "                _cadbench_shape = getattr(_cadbench_obj, 'Shape', None)",
+            "                if _cadbench_shape is not None and not _cadbench_shape.isNull():",
+            "                    _cadbench_objects.append(_cadbench_obj)",
+            "            except Exception:",
+            "                pass",
+            "        if _cadbench_objects:",
+            f"            _cadbench_mesh.export(_cadbench_objects, '{stl_path}')",
+            "except Exception as _cadbench_export_error:",
+            "    print(f'CADBench STL export failed: {_cadbench_export_error}')",
+            "",
+        ]
     )
-    (tmpdir_path / "export_stl.py").write_text(stl_script)
 
-    try:
-        _run_freecad_script(tmpdir_path, "export_stl.py", timeout=30)
-        if stl_out_file.exists() and stl_out_file.stat().st_size > 0:
-            artifact_dir.mkdir(parents=True, exist_ok=True)
-            stl_final_path = artifact_dir / f"output{file_suffix}.stl"
-            shutil.move(str(stl_out_file), str(stl_final_path))
-            print(f"Successfully moved STL to {stl_final_path}")
-            return stl_final_path
-    except Exception as exc:
-        print(f"Error exporting STL: {exc}")
+
+def _move_stl(tmpdir_path: Path, file_suffix: str, artifact_dir: Path) -> Path | None:
+    stl_out_file = tmpdir_path / f"output{file_suffix}.stl"
+    if stl_out_file.exists() and stl_out_file.stat().st_size > 0:
+        artifact_dir.mkdir(parents=True, exist_ok=True)
+        stl_final_path = artifact_dir / f"output{file_suffix}.stl"
+        shutil.move(str(stl_out_file), str(stl_final_path))
+        print(f"Successfully moved STL to {stl_final_path}")
+        return stl_final_path
     return None
 
 

@@ -14,20 +14,26 @@ from config import (
 
 def is_free_openrouter_model(model: dict) -> bool:
     pricing = model.get("pricing") or {}
-    architecture = model.get("architecture") or {}
-    output_modalities = architecture.get("output_modalities") or []
-    context_length = model.get("context_length")
     return (
         model.get("id", "").endswith(":free")
         and pricing.get("prompt") == "0"
         and pricing.get("completion") == "0"
-        and "text" in output_modalities
+        and is_usable_text_model(model)
+    )
+
+
+def is_usable_text_model(model: dict) -> bool:
+    architecture = model.get("architecture") or {}
+    output_modalities = architecture.get("output_modalities") or []
+    context_length = model.get("context_length")
+    return (
+        "text" in output_modalities
         and (context_length is None or context_length >= MIN_RECOMMENDED_CONTEXT_LENGTH)
     )
 
 
 def is_supported_model_id(model_name: str) -> bool:
-    return "/" in model_name and model_name.endswith(":free")
+    return "/" in model_name
 
 
 def display_name_from_model_id(model_id: str) -> str:
@@ -42,13 +48,24 @@ def provider_from_model_id(model_id: str) -> str:
 
 def model_info_from_openrouter_model(model: dict) -> dict:
     model_id = model["id"]
+    pricing = model.get("pricing") or {}
+    is_free = (
+        model_id.endswith(":free")
+        and pricing.get("prompt") == "0"
+        and pricing.get("completion") == "0"
+    )
     info = {
         "id": model_id,
         "name": model.get("name") or display_name_from_model_id(model_id),
         "provider": provider_from_model_id(model_id),
         "context_length": model.get("context_length"),
-        "free": True,
+        "free": is_free,
     }
+    if pricing:
+        info["pricing"] = {
+            "prompt": pricing.get("prompt"),
+            "completion": pricing.get("completion"),
+        }
 
     supported_parameters = model.get("supported_parameters")
     if supported_parameters:
@@ -62,7 +79,7 @@ def model_info_from_openrouter_model(model: dict) -> dict:
     return info
 
 
-def fetch_openrouter_free_models() -> list[dict]:
+def fetch_openrouter_models(free_only: bool = True) -> list[dict]:
     api_key = os.getenv("OPENROUTER_API_KEY")
     url = OPENROUTER_USER_MODELS_URL if api_key else OPENROUTER_MODELS_URL
     headers = {"Authorization": f"Bearer {api_key}"} if api_key else None
@@ -77,8 +94,12 @@ def fetch_openrouter_free_models() -> list[dict]:
     return [
         model_info_from_openrouter_model(model)
         for model in response.json().get("data", [])
-        if is_free_openrouter_model(model)
+        if (is_free_openrouter_model(model) if free_only else is_usable_text_model(model))
     ]
+
+
+def fetch_openrouter_free_models() -> list[dict]:
+    return fetch_openrouter_models(free_only=True)
 
 
 def fallback_model_info() -> list[dict]:
@@ -94,9 +115,9 @@ def fallback_model_info() -> list[dict]:
     ]
 
 
-def get_available_model_info() -> list[dict]:
+def get_available_model_info(free_only: bool = True) -> list[dict]:
     try:
-        models_by_id = {model["id"]: model for model in fetch_openrouter_free_models()}
+        models_by_id = {model["id"]: model for model in fetch_openrouter_models(free_only=free_only)}
     except httpx.HTTPError as exc:
         print(f"Unable to fetch OpenRouter models: {exc}")
         models_by_id = {}
@@ -104,8 +125,9 @@ def get_available_model_info() -> list[dict]:
     if not models_by_id:
         return fallback_model_info()
 
-    for model in fallback_model_info():
-        models_by_id.setdefault(model["id"], model)
+    if free_only:
+        for model in fallback_model_info():
+            models_by_id.setdefault(model["id"], model)
 
     models = list(models_by_id.values())
     models.sort(key=lambda model: (model["id"] != DEFAULT_MODEL, model["name"].lower()))

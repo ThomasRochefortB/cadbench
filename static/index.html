@@ -246,6 +246,7 @@
     .selector-tools {
       display: flex;
       align-items: center;
+      gap: 18px;
       margin-top: 16px;
     }
 
@@ -295,47 +296,6 @@
       margin-top: 7px;
       color: var(--muted);
       font-size: 0.82rem;
-    }
-
-    .mode-row {
-      display: grid;
-      gap: 8px;
-      margin-top: 18px;
-    }
-
-    .segmented-control {
-      display: inline-grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      width: min(100%, 460px);
-      padding: 3px;
-      background: var(--surface-muted);
-      border: 1px solid var(--line);
-      border-radius: 8px;
-    }
-
-    .segmented-control input {
-      position: absolute;
-      opacity: 0;
-      pointer-events: none;
-    }
-
-    .segmented-control span {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      min-height: 36px;
-      padding: 0 12px;
-      border-radius: 6px;
-      color: var(--muted);
-      font-size: 0.9rem;
-      font-weight: 700;
-      cursor: pointer;
-    }
-
-    .segmented-control input:checked + span {
-      color: var(--accent-strong);
-      background: var(--surface);
-      box-shadow: 0 1px 4px rgba(20, 31, 38, 0.08);
     }
 
     .viewerContainer {
@@ -449,9 +409,6 @@
         padding: 0;
       }
 
-      .segmented-control {
-        width: 100%;
-      }
     }
   </style>
   <script type="importmap">
@@ -485,6 +442,10 @@
           <input id="compareToggle" type="checkbox">
           <span>Compare two models</span>
         </label>
+        <label class="toggle-control" for="freeOnlyToggle">
+          <input id="freeOnlyToggle" type="checkbox" checked>
+          <span>Free endpoints only</span>
+        </label>
       </div>
 
       <div id="selectorRow" class="comparison-container selector-row single-model">
@@ -501,20 +462,6 @@
             <option value="">Loading models...</option>
           </select>
           <div id="model2Meta" class="model-meta"></div>
-        </div>
-      </div>
-
-      <div class="mode-row">
-        <span class="field-label">Generation Mode</span>
-        <div class="segmented-control" role="radiogroup" aria-label="Generation mode">
-          <label>
-            <input type="radio" name="generationMode" value="baseline" checked>
-            <span>Baseline</span>
-          </label>
-          <label>
-            <input type="radio" name="generationMode" value="mcp">
-            <span>MCP-assisted</span>
-          </label>
         </div>
       </div>
 
@@ -578,13 +525,7 @@
     import { STLLoader } from 'three/addons/loaders/STLLoader.js';
 
     const DEFAULT_MODEL_ID = 'inclusionai/ling-2.6-flash:free';
-    const baseLoadingStages = [
-      'Generating FreeCAD script...',
-      'Running FreeCAD in isolated Docker containers...',
-      'Attempting script repair if FreeCAD reports errors...',
-      'Exporting STL previews and collecting results...'
-    ];
-    const mcpLoadingStages = [
+    const loadingStages = [
       'Gathering FreeCAD context and tool results...',
       'Generating tool-assisted script...',
       'Running FreeCAD in isolated Docker containers...',
@@ -601,7 +542,7 @@
         parts.push(`Max output: ${model.max_completion_tokens.toLocaleString()} tokens`);
       }
       if (model.supported_parameters?.includes('tools')) parts.push('Tools');
-      if (model.free) parts.push('Free endpoint');
+      parts.push(model.free ? 'Free endpoint' : 'Paid endpoint');
       return parts.join(' · ');
     }
 
@@ -619,8 +560,7 @@
       document.getElementById(metaId).textContent = option?.dataset.meta || '';
     }
 
-    function startLoadingState(mode) {
-      const loadingStages = mode === 'mcp' ? mcpLoadingStages : baseLoadingStages;
+    function startLoadingState() {
       let stageIndex = 0;
       loading.textContent = loadingStages[stageIndex];
       loading.style.display = 'block';
@@ -649,14 +589,16 @@
       document.getElementById('resultColumn2').hidden = !enabled;
       model2Select.disabled = !enabled;
       submitButton.textContent = enabled ? 'Generate & Compare' : 'Generate Model';
-      baseLoadingStages[0] = enabled ? 'Generating scripts from both models...' : 'Generating FreeCAD script...';
-      mcpLoadingStages[1] = enabled ? 'Generating tool-assisted scripts from both models...' : 'Generating tool-assisted script...';
+      loadingStages[1] = enabled ? 'Generating tool-assisted scripts from both models...' : 'Generating tool-assisted script...';
     }
 
     // Load available models from API
     async function loadModels() {
       try {
-        const response = await fetch('/api/models');
+        const previousModel1 = model1Select.value;
+        const previousModel2 = model2Select.value;
+        const freeOnly = document.getElementById('freeOnlyToggle').checked;
+        const response = await fetch(`/api/models?free_only=${freeOnly ? 'true' : 'false'}`);
         const models = await response.json();
         
         // Clear loading placeholders
@@ -674,9 +616,17 @@
           document.getElementById('model1Select').appendChild(option1);
           document.getElementById('model2Select').appendChild(option2);
         }
+
+        if (previousModel1 && models.some((model) => model.id === previousModel1)) {
+          document.getElementById('model1Select').value = previousModel1;
+        }
+        const keptPreviousModel2 = previousModel2 && models.some((model) => model.id === previousModel2);
+        if (keptPreviousModel2) {
+          document.getElementById('model2Select').value = previousModel2;
+        }
         
         // Set a different default for the second dropdown
-        if (models.length > 1) {
+        if (!keptPreviousModel2 && models.length > 1) {
           document.getElementById('model2Select').selectedIndex = 1;
         }
         updateSelectedModelMeta(document.getElementById('model1Select'), 'model1Meta');
@@ -806,12 +756,14 @@
     const model1Select = document.getElementById("model1Select");
     const model2Select = document.getElementById("model2Select");
     const compareToggle = document.getElementById("compareToggle");
+    const freeOnlyToggle = document.getElementById("freeOnlyToggle");
     const loading = document.getElementById("loading");
     const submitButton = document.getElementById("submitButton");
 
     model1Select.addEventListener('change', () => updateSelectedModelMeta(model1Select, 'model1Meta'));
     model2Select.addEventListener('change', () => updateSelectedModelMeta(model2Select, 'model2Meta'));
     compareToggle.addEventListener('change', () => setComparisonMode(comparisonEnabled()));
+    freeOnlyToggle.addEventListener('change', loadModels);
 
     document.querySelectorAll('.copy-script').forEach((button) => {
       button.addEventListener('click', async () => {
@@ -837,7 +789,6 @@
       // Get selected models
       const model1 = model1Select.value;
       const model2 = compareModels ? model2Select.value : null;
-      const mode = document.querySelector('input[name="generationMode"]:checked')?.value || 'baseline';
       
       // Update model titles
       document.getElementById("model1Title").textContent = model1Select.options[model1Select.selectedIndex].text;
@@ -865,14 +816,14 @@
         document.getElementById(`viewerContainer${index}`).style.display = "none";
         document.getElementById(`errorContainer${index}`).style.display = "none";
       }
-      startLoadingState(mode);
+      startLoadingState();
       submitButton.disabled = true;
 
       try {
         const res = await fetch("/api/generate", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(model2 ? { prompt, model1, model2, mode } : { prompt, model1, mode }),
+          body: JSON.stringify(model2 ? { prompt, model1, model2 } : { prompt, model1 }),
         });
         
         const data = await res.json();
@@ -898,9 +849,7 @@
           } else if (result.repair_attempted) {
             resultMeta.textContent = `${resultMeta.textContent} · repair attempted`;
           }
-          if (result.mode === 'mcp') {
-            resultMeta.textContent = `${resultMeta.textContent} · MCP-assisted`;
-          }
+          resultMeta.textContent = `${resultMeta.textContent} · MCP-assisted`;
           
           // Display script if present
           if (result.script) {
