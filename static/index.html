@@ -269,6 +269,47 @@
       font-size: 0.82rem;
     }
 
+    .mode-row {
+      display: grid;
+      gap: 8px;
+      margin-top: 18px;
+    }
+
+    .segmented-control {
+      display: inline-grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      width: min(100%, 460px);
+      padding: 3px;
+      background: var(--surface-muted);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+    }
+
+    .segmented-control input {
+      position: absolute;
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .segmented-control span {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 36px;
+      padding: 0 12px;
+      border-radius: 6px;
+      color: var(--muted);
+      font-size: 0.9rem;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    .segmented-control input:checked + span {
+      color: var(--accent-strong);
+      background: var(--surface);
+      box-shadow: 0 1px 4px rgba(20, 31, 38, 0.08);
+    }
+
     .viewerContainer {
       display: none;
     }
@@ -379,6 +420,10 @@
       .selector-row .model-column {
         padding: 0;
       }
+
+      .segmented-control {
+        width: 100%;
+      }
     }
   </style>
   <script type="importmap">
@@ -421,6 +466,20 @@
             <option value="">Loading models...</option>
           </select>
           <div id="model2Meta" class="model-meta"></div>
+        </div>
+      </div>
+
+      <div class="mode-row">
+        <span class="field-label">Generation Mode</span>
+        <div class="segmented-control" role="radiogroup" aria-label="Generation mode">
+          <label>
+            <input type="radio" name="generationMode" value="baseline" checked>
+            <span>Baseline</span>
+          </label>
+          <label>
+            <input type="radio" name="generationMode" value="mcp">
+            <span>MCP-assisted</span>
+          </label>
         </div>
       </div>
 
@@ -484,10 +543,17 @@
     import { STLLoader } from 'three/addons/loaders/STLLoader.js';
 
     const DEFAULT_MODEL_ID = 'inclusionai/ling-2.6-flash:free';
-    const loadingStages = [
+    const baseLoadingStages = [
       'Generating scripts from both models...',
       'Running FreeCAD in isolated Docker containers...',
       'Attempting script repair if FreeCAD reports errors...',
+      'Exporting STL previews and collecting results...'
+    ];
+    const mcpLoadingStages = [
+      'Gathering FreeCAD context and tool results...',
+      'Generating tool-assisted scripts from both models...',
+      'Running FreeCAD in isolated Docker containers...',
+      'Attempting tool-assisted repair if FreeCAD reports errors...',
       'Exporting STL previews and collecting results...'
     ];
     let loadingTimer = null;
@@ -499,6 +565,7 @@
       if (model.max_completion_tokens) {
         parts.push(`Max output: ${model.max_completion_tokens.toLocaleString()} tokens`);
       }
+      if (model.supported_parameters?.includes('tools')) parts.push('Tools');
       if (model.free) parts.push('Free endpoint');
       return parts.join(' · ');
     }
@@ -517,7 +584,8 @@
       document.getElementById(metaId).textContent = option?.dataset.meta || '';
     }
 
-    function startLoadingState() {
+    function startLoadingState(mode) {
+      const loadingStages = mode === 'mcp' ? mcpLoadingStages : baseLoadingStages;
       let stageIndex = 0;
       loading.textContent = loadingStages[stageIndex];
       loading.style.display = 'block';
@@ -715,6 +783,7 @@
       // Get selected models
       const model1 = model1Select.value;
       const model2 = model2Select.value;
+      const mode = document.querySelector('input[name="generationMode"]:checked')?.value || 'baseline';
       
       // Update model titles
       document.getElementById("model1Title").textContent = model1Select.options[model1Select.selectedIndex].text;
@@ -735,14 +804,14 @@
       document.getElementById("viewerContainer2").style.display = "none";
       document.getElementById("errorContainer1").style.display = "none";
       document.getElementById("errorContainer2").style.display = "none";
-      startLoadingState();
+      startLoadingState(mode);
       submitButton.disabled = true;
 
       try {
         const res = await fetch("/api/generate", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ prompt, model1, model2 }),
+          body: JSON.stringify({ prompt, model1, model2, mode }),
         });
         
         const data = await res.json();
@@ -766,6 +835,9 @@
             resultMeta.textContent = `${resultMeta.textContent} · repaired after initial FreeCAD failure`;
           } else if (result.repair_attempted) {
             resultMeta.textContent = `${resultMeta.textContent} · repair attempted`;
+          }
+          if (result.mode === 'mcp') {
+            resultMeta.textContent = `${resultMeta.textContent} · MCP-assisted`;
           }
           
           // Display script if present
@@ -795,6 +867,14 @@
           }
           if (result.repair_script && !result.repaired) {
             extraScriptContainer.appendChild(collapsibleCodeBlock('Repair attempt script', result.repair_script));
+          }
+          if (result.tool_trace?.length) {
+            extraScriptContainer.appendChild(collapsibleCodeBlock('MCP tool trace', JSON.stringify(result.tool_trace, null, 2)));
+          }
+          if (result.repair_tool_trace?.length) {
+            extraScriptContainer.appendChild(
+              collapsibleCodeBlock('MCP repair tool trace', JSON.stringify(result.repair_tool_trace, null, 2))
+            );
           }
           
           // Handle download links

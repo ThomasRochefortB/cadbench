@@ -1,4 +1,8 @@
 import os
+import json
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from typing import Any
 
 import httpx
 
@@ -11,10 +15,107 @@ from config import (
 )
 
 
+ToolExecutor = Callable[[str, dict[str, Any]], dict[str, Any]]
+
+
+@dataclass
+class ToolCompletionResult:
+    content: str
+    tool_trace: list[dict[str, Any]] = field(default_factory=list)
+    messages: list[dict[str, Any]] = field(default_factory=list)
+
+
 def generate_code_with_openrouter(prompt: str, model_name: str) -> str:
+    response = create_openrouter_chat_completion(
+        model_name,
+        [{"role": "user", "content": prompt}],
+    )
+    return extract_openrouter_output_text(response.json())
+
+
+def generate_text_with_openrouter_tools(
+    prompt: str,
+    model_name: str,
+    tools: list[dict[str, Any]],
+    execute_tool: ToolExecutor,
+    max_tool_rounds: int = 3,
+) -> ToolCompletionResult:
+    messages: list[dict[str, Any]] = [{"role": "user", "content": prompt}]
+    tool_trace: list[dict[str, Any]] = []
+
+    for _round_index in range(max_tool_rounds):
+        response = create_openrouter_chat_completion(
+            model_name,
+            messages,
+            tools=tools,
+            tool_choice="auto",
+            parallel_tool_calls=False,
+        )
+        choice = _first_choice(response.json())
+        message = choice.get("message") or {}
+        tool_calls = message.get("tool_calls") or []
+        if not tool_calls:
+            return ToolCompletionResult(
+                extract_openrouter_output_text({"choices": [choice]}),
+                tool_trace,
+                messages,
+            )
+
+        messages.append(_assistant_tool_message(message, tool_calls))
+        for tool_call in tool_calls:
+            tool_name, tool_args, tool_result = _execute_requested_tool(tool_call, execute_tool)
+            tool_trace.append(
+                {
+                    "name": tool_name,
+                    "arguments": _compact_tool_result(tool_args),
+                    "result": _compact_tool_result(tool_result),
+                }
+            )
+            messages.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": tool_call.get("id"),
+                    "name": tool_name or "unknown_tool",
+                    "content": json.dumps(tool_result, ensure_ascii=True),
+                }
+            )
+
+    response = create_openrouter_chat_completion(
+        model_name,
+        messages,
+        tools=tools,
+        tool_choice="none",
+        parallel_tool_calls=False,
+    )
+    return ToolCompletionResult(
+        extract_openrouter_output_text(response.json()),
+        tool_trace,
+        messages,
+    )
+
+
+def create_openrouter_chat_completion(
+    model_name: str,
+    messages: list[dict[str, Any]],
+    tools: list[dict[str, Any]] | None = None,
+    tool_choice: str | dict[str, Any] | None = None,
+    parallel_tool_calls: bool | None = None,
+) -> httpx.Response:
     api_key = os.getenv("OPENROUTER_API_KEY")
     if not api_key:
         raise RuntimeError("OPENROUTER_API_KEY is not set")
+
+    payload: dict[str, Any] = {
+        "model": model_name,
+        "messages": messages,
+        "max_tokens": openrouter_max_tokens(),
+    }
+    if tools is not None:
+        payload["tools"] = tools
+    if tool_choice is not None:
+        payload["tool_choice"] = tool_choice
+    if parallel_tool_calls is not None:
+        payload["parallel_tool_calls"] = parallel_tool_calls
 
     response = httpx.post(
         OPENROUTER_CHAT_COMPLETIONS_URL,
@@ -24,18 +125,14 @@ def generate_code_with_openrouter(prompt: str, model_name: str) -> str:
             "HTTP-Referer": OPENROUTER_APP_REFERER,
             "X-OpenRouter-Title": OPENROUTER_APP_TITLE,
         },
-        json={
-            "model": model_name,
-            "messages": [{"role": "user", "content": prompt}],
-            "max_tokens": openrouter_max_tokens(),
-        },
+        json=payload,
         timeout=GENERATION_REQUEST_TIMEOUT,
     )
     try:
         response.raise_for_status()
     except httpx.HTTPStatusError as exc:
         raise RuntimeError(format_openrouter_http_error(exc.response)) from exc
-    return extract_openrouter_output_text(response.json())
+    return response
 
 
 def openrouter_max_tokens() -> int:
@@ -65,6 +162,17 @@ def format_openrouter_http_error(response: httpx.Response) -> str:
     return f"OpenRouter error {response.status_code}"
 
 
+def is_openrouter_rate_limit_error(error: Exception | str) -> bool:
+    return str(error).startswith("OpenRouter rate limit:")
+
+
+def openrouter_rate_limit_guidance(error: Exception | str) -> str:
+    return (
+        f"{error}. The selected OpenRouter provider is rate-limited right now. "
+        "Try Baseline mode, choose a different free model, or wait and retry."
+    )
+
+
 def extract_openrouter_output_text(response_json: dict) -> str:
     choices = response_json.get("choices", [])
     if not choices:
@@ -89,3 +197,48 @@ def extract_openrouter_output_text(response_json: dict) -> str:
     if finish_reason:
         raise RuntimeError(f"OpenRouter response did not include text output (finish_reason: {finish_reason})")
     raise RuntimeError("OpenRouter response did not include text output")
+
+
+def _first_choice(response_json: dict[str, Any]) -> dict[str, Any]:
+    choices = response_json.get("choices", [])
+    if not choices:
+        raise RuntimeError("OpenRouter response did not include choices")
+    return choices[0]
+
+
+def _assistant_tool_message(message: dict[str, Any], tool_calls: list[dict[str, Any]]) -> dict[str, Any]:
+    return {
+        "role": message.get("role") or "assistant",
+        "content": message.get("content"),
+        "tool_calls": tool_calls,
+    }
+
+
+def _execute_requested_tool(
+    tool_call: dict[str, Any], execute_tool: ToolExecutor
+) -> tuple[str | None, dict[str, Any], dict[str, Any]]:
+    function_call = tool_call.get("function") or {}
+    tool_name = function_call.get("name")
+    raw_arguments = function_call.get("arguments") or "{}"
+    try:
+        tool_args = json.loads(raw_arguments)
+        if not isinstance(tool_args, dict):
+            tool_args = {"value": tool_args}
+    except json.JSONDecodeError:
+        tool_args = {"raw_arguments": raw_arguments}
+        return tool_name, tool_args, {"success": False, "error": "Tool arguments were not valid JSON."}
+
+    if not tool_name:
+        return tool_name, tool_args, {"success": False, "error": "Tool call did not include a function name."}
+
+    try:
+        return tool_name, tool_args, execute_tool(tool_name, tool_args)
+    except Exception as exc:
+        return tool_name, tool_args, {"success": False, "error": str(exc)}
+
+
+def _compact_tool_result(value: Any, max_chars: int = 900) -> Any:
+    rendered = json.dumps(value, ensure_ascii=True, sort_keys=True)
+    if len(rendered) <= max_chars:
+        return value
+    return {"truncated": True, "preview": rendered[:max_chars]}

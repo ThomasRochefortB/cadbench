@@ -11,6 +11,7 @@ import httpx
 
 import config
 import freecad_runner
+import mcp_assistant
 import model_catalog
 import openrouter_client
 import script_normalizer
@@ -25,6 +26,9 @@ load_dotenv()
 OPENROUTER_USER_MODELS_URL = config.OPENROUTER_USER_MODELS_URL
 FreeCADExecutionResult = freecad_runner.FreeCADExecutionResult
 _HTTPX_RESPONSE_TYPE = httpx.Response
+GENERATION_MODE_BASELINE = "baseline"
+GENERATION_MODE_MCP_ASSISTED = "mcp"
+GENERATION_MODES = {GENERATION_MODE_BASELINE, GENERATION_MODE_MCP_ASSISTED}
 
 
 def make_docker_command(tmpdir_path: Path, script_name: str) -> list[str]:
@@ -59,6 +63,28 @@ def openrouter_max_tokens() -> int:
 
 def generate_code_with_openrouter(prompt: str, model_name: str) -> str:
     return openrouter_client.generate_code_with_openrouter(prompt, model_name)
+
+
+def generate_text_with_openrouter_tools(*args, **kwargs) -> openrouter_client.ToolCompletionResult:
+    return openrouter_client.generate_text_with_openrouter_tools(*args, **kwargs)
+
+
+def generate_code_with_mcp_assistance(
+    user_prompt: str, model_name: str, artifact_dir: Path
+) -> mcp_assistant.MCPAssistedResult:
+    return mcp_assistant.generate_code_with_mcp_assistance(user_prompt, model_name, artifact_dir)
+
+
+def repair_code_with_mcp_assistance(
+    user_prompt: str, model_name: str, script: str, error_details: str, artifact_dir: Path
+) -> mcp_assistant.MCPAssistedResult:
+    return mcp_assistant.repair_code_with_mcp_assistance(
+        user_prompt,
+        model_name,
+        script,
+        error_details,
+        artifact_dir,
+    )
 
 
 def is_free_openrouter_model(model: dict) -> bool:
@@ -135,32 +161,67 @@ def artifact_url(path: Path) -> str:
         return "/" + path.as_posix()
 
 
-def build_model_result(user_prompt: str, model_name: str, file_suffix: str, artifact_dir: Path) -> dict:
-    model_result = {"model": model_name, "stages": []}
+def normalize_generation_mode(mode: str | None) -> str:
+    return mode if mode in GENERATION_MODES else GENERATION_MODE_BASELINE
+
+
+def build_model_result(
+    user_prompt: str,
+    model_name: str,
+    file_suffix: str,
+    artifact_dir: Path,
+    generation_mode: str = GENERATION_MODE_BASELINE,
+) -> dict:
+    generation_mode = normalize_generation_mode(generation_mode)
+    model_result = {"model": model_name, "mode": generation_mode, "stages": []}
 
     try:
         model_result["stages"].append("Generated initial script")
-        script = prepare_freecad_script(generate_code_with_llm(user_prompt, model_name), file_suffix)
+        script, tool_trace = generate_script_for_mode(
+            user_prompt,
+            model_name,
+            file_suffix,
+            artifact_dir,
+            generation_mode,
+        )
+        if tool_trace:
+            model_result["tool_trace"] = tool_trace
+            model_result["stages"].append("Used FreeCAD context/validation tools")
+        script = prepare_freecad_script(script, file_suffix)
         execution = try_execute_freecad_script(script, file_suffix, artifact_dir)
 
         if should_repair_execution(execution):
             model_result["stages"].append("Initial FreeCAD run failed; requested repair")
-            repaired_script = prepare_freecad_script(
-                repair_code_with_llm(user_prompt, model_name, script, execution.error_info or ""),
-                file_suffix,
-            )
-            repaired_execution = try_execute_freecad_script(repaired_script, file_suffix, artifact_dir)
-            if repaired_execution.fcstd_path:
-                model_result["repaired"] = True
-                model_result["original_script"] = script
-                script = repaired_script
-                execution = repaired_execution
-                model_result["stages"].append("Repair succeeded")
-            else:
+            try:
+                repaired_script, repair_tool_trace = repair_script_for_mode(
+                    user_prompt,
+                    model_name,
+                    script,
+                    execution.error_info or "",
+                    file_suffix,
+                    artifact_dir,
+                    generation_mode,
+                )
+                if repair_tool_trace:
+                    model_result["repair_tool_trace"] = repair_tool_trace
+                    model_result["stages"].append("Used FreeCAD repair tools")
+                repaired_script = prepare_freecad_script(repaired_script, file_suffix)
+                repaired_execution = try_execute_freecad_script(repaired_script, file_suffix, artifact_dir)
+                if repaired_execution.fcstd_path:
+                    model_result["repaired"] = True
+                    model_result["original_script"] = script
+                    script = repaired_script
+                    execution = repaired_execution
+                    model_result["stages"].append("Repair succeeded")
+                else:
+                    model_result["repair_attempted"] = True
+                    model_result["repair_script"] = repaired_script
+                    model_result["repair_error_details"] = repaired_execution.error_info
+                    model_result["stages"].append("Repair did not produce a model")
+            except Exception as repair_exc:
                 model_result["repair_attempted"] = True
-                model_result["repair_script"] = repaired_script
-                model_result["repair_error_details"] = repaired_execution.error_info
-                model_result["stages"].append("Repair did not produce a model")
+                model_result["repair_error_details"] = f"Repair request failed: {repair_exc}"
+                model_result["stages"].append("Repair request failed")
 
         model_result["script"] = script
         add_execution_result(model_result, execution)
@@ -168,12 +229,50 @@ def build_model_result(user_prompt: str, model_name: str, file_suffix: str, arti
     except Exception as exc:
         model_result["script"] = f"# Error: {str(exc)}"
         error_message = str(exc)
-        if error_message.startswith("OpenRouter rate limit:"):
-            model_result["error"] = error_message
+        if openrouter_client.is_openrouter_rate_limit_error(error_message):
+            model_result["error"] = openrouter_client.openrouter_rate_limit_guidance(error_message)
         else:
             model_result["error"] = f"Failed to generate script: {error_message}"
 
     return model_result
+
+
+def generate_script_for_mode(
+    user_prompt: str,
+    model_name: str,
+    file_suffix: str,
+    artifact_dir: Path,
+    generation_mode: str,
+) -> tuple[str, list[dict]]:
+    if generation_mode == GENERATION_MODE_MCP_ASSISTED:
+        result = generate_code_with_mcp_assistance(
+            user_prompt,
+            model_name,
+            artifact_dir / f"mcp{file_suffix}_initial",
+        )
+        return result.script, result.tool_trace
+    return generate_code_with_llm(user_prompt, model_name), []
+
+
+def repair_script_for_mode(
+    user_prompt: str,
+    model_name: str,
+    script: str,
+    error_details: str,
+    file_suffix: str,
+    artifact_dir: Path,
+    generation_mode: str,
+) -> tuple[str, list[dict]]:
+    if generation_mode == GENERATION_MODE_MCP_ASSISTED:
+        result = repair_code_with_mcp_assistance(
+            user_prompt,
+            model_name,
+            script,
+            error_details,
+            artifact_dir / f"mcp{file_suffix}_repair",
+        )
+        return result.script, result.tool_trace
+    return repair_code_with_llm(user_prompt, model_name, script, error_details), []
 
 
 def should_repair_execution(execution: FreeCADExecutionResult) -> bool:
@@ -219,16 +318,24 @@ def generate():
         data.get("model2", DEFAULT_MODEL),
     ]
     models = [model if is_supported_model_id(model) else DEFAULT_MODEL for model in models]
+    generation_mode = normalize_generation_mode(data.get("mode"))
 
     request_artifact_dir = ARTIFACTS_DIR / uuid.uuid4().hex
     with ThreadPoolExecutor(max_workers=2) as executor:
         futures = [
-            executor.submit(build_model_result, user_prompt, model_name, f"_model{index}", request_artifact_dir)
+            executor.submit(
+                build_model_result,
+                user_prompt,
+                model_name,
+                f"_model{index}",
+                request_artifact_dir,
+                generation_mode,
+            )
             for index, model_name in enumerate(models, start=1)
         ]
         results = [future.result() for future in futures]
 
-    return jsonify({"results": results})
+    return jsonify({"mode": generation_mode, "results": results})
 
 
 @app.route("/api/models", methods=["GET"])

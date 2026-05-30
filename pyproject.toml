@@ -34,7 +34,10 @@ build-backend = "hatchling.build"
 include = [
     "app.py",
     "config.py",
+    "freecad_context.py",
     "freecad_runner.py",
+    "freecad_validation.py",
+    "mcp_assistant.py",
     "model_catalog.py",
     "openrouter_client.py",
     "prompts.py",

@@ -1,6 +1,8 @@
 import os
 
 import app as cadbench
+import freecad_context
+import freecad_validation
 
 
 def test_prepare_freecad_script_strips_fences_rewrites_output_and_removes_gui_import():
@@ -131,6 +133,68 @@ def test_generate_code_with_openrouter_uses_configurable_max_tokens(monkeypatch)
     assert captured["json"]["max_tokens"] == 1234
 
 
+def test_generate_text_with_openrouter_tools_executes_requested_tool(monkeypatch):
+    captured_payloads = []
+    responses = [
+        {
+            "choices": [
+                {
+                    "message": {
+                        "role": "assistant",
+                        "content": None,
+                        "tool_calls": [
+                            {
+                                "id": "call_1",
+                                "type": "function",
+                                "function": {
+                                    "name": "search_docs",
+                                    "arguments": '{"query": "box hole"}',
+                                },
+                            }
+                        ],
+                    },
+                    "finish_reason": "tool_calls",
+                }
+            ]
+        },
+        {"choices": [{"message": {"content": "print('done')"}}]},
+    ]
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        captured_payloads.append(json)
+        request = cadbench.httpx.Request("POST", url)
+        return cadbench.httpx.Response(200, request=request, json=responses.pop(0))
+
+    tools = [
+        {
+            "type": "function",
+            "function": {
+                "name": "search_docs",
+                "description": "Search docs",
+                "parameters": {"type": "object", "properties": {"query": {"type": "string"}}},
+            },
+        }
+    ]
+
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
+    monkeypatch.setattr(cadbench.httpx, "post", fake_post)
+
+    result = cadbench.generate_text_with_openrouter_tools(
+        "prompt",
+        cadbench.DEFAULT_MODEL,
+        tools,
+        lambda name, args: {"success": True, "name": name, "query": args["query"]},
+        max_tool_rounds=2,
+    )
+
+    assert result.content == "print('done')"
+    assert result.tool_trace[0]["name"] == "search_docs"
+    assert captured_payloads[0]["tools"] == tools
+    assert captured_payloads[1]["tools"] == tools
+    assert captured_payloads[1]["messages"][1]["tool_calls"][0]["id"] == "call_1"
+    assert captured_payloads[1]["messages"][2]["role"] == "tool"
+
+
 def test_format_openrouter_http_error_uses_provider_message():
     response = cadbench.httpx.Response(
         404,
@@ -153,6 +217,15 @@ def test_format_openrouter_http_error_marks_rate_limits():
     )
 
     assert cadbench.format_openrouter_http_error(response) == "OpenRouter rate limit: Provider returned error"
+
+
+def test_openrouter_rate_limit_guidance_is_actionable():
+    message = cadbench.openrouter_client.openrouter_rate_limit_guidance(
+        "OpenRouter rate limit: Provider returned error"
+    )
+
+    assert "Try Baseline mode" in message
+    assert "choose a different free model" in message
 
 
 def test_fetch_openrouter_free_models_uses_user_models_when_key_is_set(monkeypatch):
@@ -350,6 +423,128 @@ def test_build_model_result_reports_docker_start_failure(monkeypatch, tmp_path):
 
     assert result["error"] == "FreeCAD script failed to generate a model"
     assert "Cannot connect to the Docker daemon" in result["error_details"]
+
+
+def test_build_model_result_mcp_mode_uses_assisted_generation(monkeypatch, tmp_path):
+    def fake_assisted_generation(user_prompt, model_name, artifact_dir):
+        assert user_prompt == "make a box with a hole"
+        assert model_name == cadbench.DEFAULT_MODEL
+        assert artifact_dir.name == "mcp_model1_initial"
+        return cadbench.mcp_assistant.MCPAssistedResult(
+            script='doc.saveAs("/data/output.FCStd")',
+            tool_trace=[{"name": "search_docs", "result": {"success": True}}],
+        )
+
+    monkeypatch.setattr(cadbench, "generate_code_with_mcp_assistance", fake_assisted_generation)
+    monkeypatch.setattr(
+        cadbench,
+        "try_execute_freecad_script",
+        lambda _script, suffix, artifact_dir: cadbench.FreeCADExecutionResult(
+            artifact_dir / f"output{suffix}.FCStd",
+            artifact_dir / f"output{suffix}.stl",
+        ),
+    )
+
+    result = cadbench.build_model_result(
+        "make a box with a hole",
+        cadbench.DEFAULT_MODEL,
+        "_model1",
+        tmp_path,
+        "mcp",
+    )
+
+    assert result["mode"] == "mcp"
+    assert result["tool_trace"] == [{"name": "search_docs", "result": {"success": True}}]
+    assert result["fcstd_url"].endswith("/output_model1.FCStd")
+
+
+def test_mcp_assistance_falls_back_to_context_prompt_when_tools_are_rejected(monkeypatch, tmp_path):
+    def reject_tools(*_args, **_kwargs):
+        raise RuntimeError("OpenRouter error 400: tools are not supported by this model")
+
+    monkeypatch.setattr(cadbench.openrouter_client, "generate_text_with_openrouter_tools", reject_tools)
+    monkeypatch.setattr(
+        cadbench.openrouter_client,
+        "generate_code_with_openrouter",
+        lambda prompt, model_name: "print('context fallback')",
+    )
+
+    result = cadbench.mcp_assistant.generate_code_with_mcp_assistance(
+        "make a bracket",
+        cadbench.DEFAULT_MODEL,
+        tmp_path,
+    )
+
+    assert result.script == "print('context fallback')"
+    assert result.tool_trace[0]["name"] == "tool_calling_fallback"
+    assert "context only" in result.tool_trace[0]["result"]["fallback"]
+
+
+def test_mcp_assistance_does_not_fallback_after_rate_limit(monkeypatch, tmp_path):
+    def reject_tools(*_args, **_kwargs):
+        raise RuntimeError("OpenRouter rate limit: Provider returned error")
+
+    monkeypatch.setattr(cadbench.openrouter_client, "generate_text_with_openrouter_tools", reject_tools)
+
+    try:
+        cadbench.mcp_assistant.generate_code_with_mcp_assistance(
+            "make a bracket",
+            cadbench.DEFAULT_MODEL,
+            tmp_path,
+        )
+    except RuntimeError as exc:
+        assert str(exc) == "OpenRouter rate limit: Provider returned error"
+    else:
+        raise AssertionError("Expected RuntimeError")
+
+
+def test_context_tools_return_relevant_guidance():
+    docs = freecad_context.search_docs("centered cylinder hole through a box", limit=2)
+    api = freecad_context.lookup_api("Part.makeCylinder")
+    fixes = freecad_context.known_error_fix("AttributeError: Shape has no attribute makeHole")
+
+    assert docs["success"]
+    assert any("Boolean" in result["title"] or "primitive" in result["title"].lower() for result in docs["results"])
+    assert api["success"]
+    assert api["signature"] == "Part.makeCylinder(radius, height)"
+    assert "documented Part functions" in fixes["fixes"][0]
+
+
+def test_validation_tool_server_tracks_runs_and_geometry(monkeypatch, tmp_path):
+    fcstd_path = tmp_path / "output_tool.FCStd"
+    stl_path = tmp_path / "output_tool.stl"
+    fcstd_path.write_bytes(b"fcstd")
+    stl_path.write_bytes(b"stl")
+
+    def fake_execute(script, file_suffix="", artifact_dir=None):
+        assert file_suffix == "_tool"
+        assert "/data/output_tool.FCStd" in script
+        return cadbench.FreeCADExecutionResult(fcstd_path, stl_path)
+
+    monkeypatch.setattr(freecad_validation.freecad_runner, "try_execute_freecad_script", fake_execute)
+    monkeypatch.setattr(
+        freecad_validation,
+        "inspect_fcstd_file",
+        lambda path: {
+            "success": True,
+            "object_count": 1,
+            "solid_count": 1,
+            "face_count": 6,
+            "edge_count": 12,
+            "volume": 1000,
+            "bbox": {"x_length": 10, "y_length": 10, "z_length": 10},
+            "warnings": [],
+        },
+    )
+
+    server = freecad_validation.FreeCADValidationToolServer(tmp_path)
+    run_result = server.run_freecad_script('doc.saveAs("/data/output.FCStd")')
+    measurement = server.measure_geometry("last")
+    export = server.export_stl("last")
+
+    assert run_result["success"] is True
+    assert measurement["solid_count"] == 1
+    assert export["already_exported"] is True
 
 
 def test_cleanup_old_artifacts_removes_only_expired_directories(monkeypatch, tmp_path):
