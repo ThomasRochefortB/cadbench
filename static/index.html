@@ -234,9 +234,37 @@
       margin-top: 18px;
     }
 
+    .comparison-container.single-model {
+      grid-template-columns: minmax(0, 1fr);
+    }
+
     .model-column {
       min-width: 0;
       padding: 20px;
+    }
+
+    .selector-tools {
+      display: flex;
+      align-items: center;
+      margin-top: 16px;
+    }
+
+    .toggle-control {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      color: var(--ink);
+      font-size: 0.95rem;
+      font-weight: 700;
+      text-transform: none;
+      cursor: pointer;
+    }
+
+    .toggle-control input {
+      width: 18px;
+      height: 18px;
+      margin: 0;
+      accent-color: var(--accent);
     }
 
     .selector-row .model-column {
@@ -440,8 +468,8 @@
     <header class="app-header">
       <img class="brand-mark" src="logo.png" alt="CADBench Logo">
       <div>
-        <h1>Compare LLM CAD Generation</h1>
-        <p class="header-copy">Enter a FreeCAD modeling prompt, choose two OpenRouter models, and compare the generated scripts and artifacts side by side.</p>
+        <h1>Generate FreeCAD Models</h1>
+        <p class="header-copy">Enter a FreeCAD modeling prompt, choose an OpenRouter model, and optionally compare it with a second model.</p>
       </div>
     </header>
 
@@ -452,15 +480,22 @@
       </div>
       <textarea id="promptInput" placeholder="e.g., Create a 20mm x 20mm cube with a centered 10mm cylindrical hole."></textarea>
 
-      <div class="comparison-container selector-row">
+      <div class="selector-tools">
+        <label class="toggle-control" for="compareToggle">
+          <input id="compareToggle" type="checkbox">
+          <span>Compare two models</span>
+        </label>
+      </div>
+
+      <div id="selectorRow" class="comparison-container selector-row single-model">
         <div class="model-column">
-          <label for="model1Select">Model A</label>
+          <label for="model1Select">Model</label>
           <select id="model1Select" class="model-select">
             <option value="">Loading models...</option>
           </select>
           <div id="model1Meta" class="model-meta"></div>
         </div>
-        <div class="model-column">
+        <div id="model2SelectorColumn" class="model-column optional-model" hidden>
           <label for="model2Select">Model B</label>
           <select id="model2Select" class="model-select">
             <option value="">Loading models...</option>
@@ -483,14 +518,14 @@
         </div>
       </div>
 
-      <button id="submitButton" type="submit">Generate & Compare</button>
+      <button id="submitButton" type="submit">Generate Model</button>
     </form>
 
     <div id="loading" class="loading">
       Generating models, please wait...
     </div>
 
-    <section class="comparison-container results-grid" aria-label="Model comparison results">
+    <section id="resultsGrid" class="comparison-container results-grid single-model" aria-label="Model generation results">
       <div class="model-column">
         <div class="result-header">
           <div>
@@ -513,7 +548,7 @@
         <p id="downloadLinkContainer1" class="download-row">(No file generated)</p>
       </div>
 
-      <div class="model-column">
+      <div id="resultColumn2" class="model-column optional-model" hidden>
         <div class="result-header">
           <div>
             <h2 id="model2Title">Model 2</h2>
@@ -544,14 +579,14 @@
 
     const DEFAULT_MODEL_ID = 'inclusionai/ling-2.6-flash:free';
     const baseLoadingStages = [
-      'Generating scripts from both models...',
+      'Generating FreeCAD script...',
       'Running FreeCAD in isolated Docker containers...',
       'Attempting script repair if FreeCAD reports errors...',
       'Exporting STL previews and collecting results...'
     ];
     const mcpLoadingStages = [
       'Gathering FreeCAD context and tool results...',
-      'Generating tool-assisted scripts from both models...',
+      'Generating tool-assisted script...',
       'Running FreeCAD in isolated Docker containers...',
       'Attempting tool-assisted repair if FreeCAD reports errors...',
       'Exporting STL previews and collecting results...'
@@ -601,6 +636,21 @@
         loadingTimer = null;
       }
       loading.style.display = 'none';
+    }
+
+    function comparisonEnabled() {
+      return document.getElementById('compareToggle').checked;
+    }
+
+    function setComparisonMode(enabled) {
+      document.getElementById('selectorRow').classList.toggle('single-model', !enabled);
+      document.getElementById('resultsGrid').classList.toggle('single-model', !enabled);
+      document.getElementById('model2SelectorColumn').hidden = !enabled;
+      document.getElementById('resultColumn2').hidden = !enabled;
+      model2Select.disabled = !enabled;
+      submitButton.textContent = enabled ? 'Generate & Compare' : 'Generate Model';
+      baseLoadingStages[0] = enabled ? 'Generating scripts from both models...' : 'Generating FreeCAD script...';
+      mcpLoadingStages[1] = enabled ? 'Generating tool-assisted scripts from both models...' : 'Generating tool-assisted script...';
     }
 
     // Load available models from API
@@ -755,11 +805,13 @@
     const promptInput = document.getElementById("promptInput");
     const model1Select = document.getElementById("model1Select");
     const model2Select = document.getElementById("model2Select");
+    const compareToggle = document.getElementById("compareToggle");
     const loading = document.getElementById("loading");
     const submitButton = document.getElementById("submitButton");
 
     model1Select.addEventListener('change', () => updateSelectedModelMeta(model1Select, 'model1Meta'));
     model2Select.addEventListener('change', () => updateSelectedModelMeta(model2Select, 'model2Meta'));
+    compareToggle.addEventListener('change', () => setComparisonMode(comparisonEnabled()));
 
     document.querySelectorAll('.copy-script').forEach((button) => {
       button.addEventListener('click', async () => {
@@ -774,36 +826,45 @@
 
     // Load models when page loads
     loadModels();
+    setComparisonMode(false);
 
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
       const prompt = promptInput.value.trim();
       if (!prompt) return;
+      const compareModels = comparisonEnabled();
 
       // Get selected models
       const model1 = model1Select.value;
-      const model2 = model2Select.value;
+      const model2 = compareModels ? model2Select.value : null;
       const mode = document.querySelector('input[name="generationMode"]:checked')?.value || 'baseline';
       
       // Update model titles
       document.getElementById("model1Title").textContent = model1Select.options[model1Select.selectedIndex].text;
-      document.getElementById("model2Title").textContent = model2Select.options[model2Select.selectedIndex].text;
       document.getElementById("resultMeta1").textContent = model1Select.options[model1Select.selectedIndex].dataset.meta || '';
-      document.getElementById("resultMeta2").textContent = model2Select.options[model2Select.selectedIndex].dataset.meta || '';
+      if (compareModels) {
+        document.getElementById("model2Title").textContent = model2Select.options[model2Select.selectedIndex].text;
+        document.getElementById("resultMeta2").textContent = model2Select.options[model2Select.selectedIndex].dataset.meta || '';
+      } else {
+        document.getElementById("model2Title").textContent = "Model 2";
+        document.getElementById("resultMeta2").textContent = "";
+      }
       
       // Reset UI
       document.getElementById("scriptOutput1").textContent = "Generating...";
-      document.getElementById("scriptOutput2").textContent = "Generating...";
       document.getElementById("downloadLinkContainer1").textContent = "";
-      document.getElementById("downloadLinkContainer2").textContent = "";
       document.getElementById("extraScriptContainer1").replaceChildren();
-      document.getElementById("extraScriptContainer2").replaceChildren();
       document.getElementById("errorMessage1").replaceChildren();
-      document.getElementById("errorMessage2").replaceChildren();
       document.getElementById("viewerContainer1").style.display = "none";
-      document.getElementById("viewerContainer2").style.display = "none";
       document.getElementById("errorContainer1").style.display = "none";
-      document.getElementById("errorContainer2").style.display = "none";
+      for (const index of [2]) {
+        document.getElementById(`scriptOutput${index}`).textContent = compareModels ? "Generating..." : "(script will appear here)";
+        document.getElementById(`downloadLinkContainer${index}`).textContent = "";
+        document.getElementById(`extraScriptContainer${index}`).replaceChildren();
+        document.getElementById(`errorMessage${index}`).replaceChildren();
+        document.getElementById(`viewerContainer${index}`).style.display = "none";
+        document.getElementById(`errorContainer${index}`).style.display = "none";
+      }
       startLoadingState(mode);
       submitButton.disabled = true;
 
@@ -811,14 +872,15 @@
         const res = await fetch("/api/generate", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ prompt, model1, model2, mode }),
+          body: JSON.stringify(model2 ? { prompt, model1, model2, mode } : { prompt, model1, mode }),
         });
         
         const data = await res.json();
         stopLoadingState();
         submitButton.disabled = false;
         
-        if (!data.results || data.results.length !== 2) {
+        const expectedResultCount = compareModels ? 2 : 1;
+        if (!data.results || data.results.length !== expectedResultCount) {
           throw new Error("Invalid response from server");
         }
         
@@ -908,7 +970,9 @@
         stopLoadingState();
         submitButton.disabled = false;
         document.getElementById("scriptOutput1").textContent = "Error: " + err.message;
-        document.getElementById("scriptOutput2").textContent = "Error: " + err.message;
+        if (compareModels) {
+          document.getElementById("scriptOutput2").textContent = "Error: " + err.message;
+        }
       }
     });
 

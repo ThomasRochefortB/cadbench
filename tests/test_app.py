@@ -348,8 +348,42 @@ def test_generate_falls_back_invalid_models_and_uses_request_scoped_artifacts(mo
     assert "/output_model2.FCStd" in results[1]["fcstd_url"]
 
 
+def test_generate_defaults_to_one_model_when_second_model_is_omitted(monkeypatch):
+    generated_models = []
+
+    def fake_generate_code(user_prompt, model_name):
+        assert user_prompt == "make a cube"
+        generated_models.append(model_name)
+        return 'doc.save("/data/output.FCStd")'
+
+    def fake_execute(script, file_suffix="", artifact_dir=None):
+        assert file_suffix == "_model1"
+        assert artifact_dir is not None
+        return cadbench.FreeCADExecutionResult(
+            artifact_dir / f"output{file_suffix}.FCStd",
+            artifact_dir / f"output{file_suffix}.stl",
+        )
+
+    monkeypatch.setattr(cadbench, "generate_code_with_llm", fake_generate_code)
+    monkeypatch.setattr(cadbench, "try_execute_freecad_script", fake_execute)
+    monkeypatch.setattr(cadbench, "cleanup_old_artifacts", lambda: None)
+
+    client = cadbench.app.test_client()
+    response = client.post(
+        "/api/generate",
+        json={"prompt": "make a cube", "model1": cadbench.DEFAULT_MODEL},
+    )
+
+    assert response.status_code == 200
+    results = response.get_json()["results"]
+    assert generated_models == [cadbench.DEFAULT_MODEL]
+    assert [result["model"] for result in results] == [cadbench.DEFAULT_MODEL]
+    assert "/output_model1.FCStd" in results[0]["fcstd_url"]
+
+
 def test_build_model_result_reports_freecad_execution_details(monkeypatch, tmp_path):
     monkeypatch.setattr(cadbench, "generate_code_with_llm", lambda _prompt, _model: "print('ok')")
+    monkeypatch.setattr(cadbench, "repair_code_with_llm", lambda *_args: "print('still broken')")
     monkeypatch.setattr(
         cadbench,
         "try_execute_freecad_script",

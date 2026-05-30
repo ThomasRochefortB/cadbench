@@ -313,15 +313,14 @@ def generate():
 
     cleanup_old_artifacts()
 
-    models = [
-        data.get("model1", DEFAULT_MODEL),
-        data.get("model2", DEFAULT_MODEL),
-    ]
+    models = [data.get("model1", DEFAULT_MODEL)]
+    if data.get("model2"):
+        models.append(data.get("model2", DEFAULT_MODEL))
     models = [model if is_supported_model_id(model) else DEFAULT_MODEL for model in models]
     generation_mode = normalize_generation_mode(data.get("mode"))
 
     request_artifact_dir = ARTIFACTS_DIR / uuid.uuid4().hex
-    with ThreadPoolExecutor(max_workers=2) as executor:
+    with ThreadPoolExecutor(max_workers=len(models)) as executor:
         futures = [
             executor.submit(
                 build_model_result,
