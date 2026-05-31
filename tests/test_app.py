@@ -1,12 +1,37 @@
 import os
 
 import app as cadbench
+import config
 import freecad_context
 import freecad_validation
+from prompts import CADBENCH_SYSTEM_PROMPT
 
 
 def assisted_result(script: str, tool_trace: list[dict] | None = None) -> cadbench.mcp_assistant.MCPAssistedResult:
     return cadbench.mcp_assistant.MCPAssistedResult(script=script, tool_trace=tool_trace or [])
+
+
+def stub_mcp_tool_bridge(monkeypatch, tools: list[dict] | None = None):
+    class StubMCPToolBridge:
+        def list_openrouter_tools(self):
+            return tools or [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "search_docs",
+                        "description": "Search docs",
+                        "parameters": {"type": "object", "properties": {"query": {"type": "string"}}},
+                    },
+                }
+            ]
+
+        def call_tool(self, name, arguments):
+            return {"success": True, "name": name, "arguments": arguments}
+
+        def close(self):
+            return None
+
+    monkeypatch.setattr(cadbench.mcp_assistant, "MCPToolBridge", StubMCPToolBridge)
 
 
 def test_prepare_freecad_script_strips_fences_rewrites_output_and_removes_gui_import():
@@ -286,6 +311,32 @@ def test_generate_text_with_openrouter_tools_executes_requested_tool(monkeypatch
     assert captured_payloads[1]["messages"][2]["role"] == "tool"
 
 
+def test_generate_text_with_openrouter_tools_can_send_system_prompt(monkeypatch):
+    captured = {}
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        captured["json"] = json
+        request = cadbench.httpx.Request("POST", url)
+        return cadbench.httpx.Response(200, request=request, json={"choices": [{"message": {"content": "done"}}]})
+
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
+    monkeypatch.setattr(cadbench.httpx, "post", fake_post)
+
+    result = cadbench.generate_text_with_openrouter_tools(
+        "user task",
+        cadbench.DEFAULT_MODEL,
+        [],
+        lambda _name, _args: {"success": True},
+        system_prompt="system rules",
+    )
+
+    assert result.content == "done"
+    assert captured["json"]["messages"][:2] == [
+        {"role": "system", "content": "system rules"},
+        {"role": "user", "content": "user task"},
+    ]
+
+
 def test_generate_text_with_openrouter_tools_omits_tool_choice_for_final_answer(monkeypatch):
     captured_payloads = []
     responses = [
@@ -446,7 +497,7 @@ def test_fetch_openrouter_free_models_uses_user_models_when_key_is_set(monkeypat
 
     models = cadbench.fetch_openrouter_free_models()
 
-    assert captured["url"] == cadbench.OPENROUTER_USER_MODELS_URL
+    assert captured["url"] == config.OPENROUTER_USER_MODELS_URL
     assert captured["headers"] == {"Authorization": "Bearer sk-or-test"}
     assert models == [
         {
@@ -637,6 +688,11 @@ def test_build_model_result_reports_generated_python_syntax_errors_before_freeca
         "generate_code_with_mcp_assistance",
         lambda _prompt, _model, _artifact_dir: assisted_result("import FreeCAD as App\npts.append(App.Vector(r_"),
     )
+    monkeypatch.setattr(
+        cadbench,
+        "repair_code_with_mcp_assistance",
+        lambda *_args: assisted_result("Still not Python ×"),
+    )
 
     def fake_execute(*_args, **_kwargs):
         nonlocal execute_called
@@ -650,7 +706,47 @@ def test_build_model_result_reports_generated_python_syntax_errors_before_freeca
     assert execute_called is False
     assert result["script"] == "import FreeCAD as App\npts.append(App.Vector(r_"
     assert result["error"].startswith("Generated script was not valid Python:")
-    assert "Generated script failed Python syntax validation" in result["stages"]
+    assert result["repair_attempted"] is True
+    assert result["repair_error_details"].startswith("Syntax repair was not valid Python:")
+    assert "Syntax repair failed Python validation" in result["stages"]
+
+
+def test_build_model_result_repairs_generated_python_syntax_errors(monkeypatch, tmp_path):
+    captured_repair = {}
+
+    monkeypatch.setattr(
+        cadbench,
+        "generate_code_with_mcp_assistance",
+        lambda _prompt, _model, _artifact_dir: assisted_result(
+            "The script ran successfully with dimensions around 90×92×23 units."
+        ),
+    )
+
+    def fake_repair(user_prompt, model_name, script, error_details, artifact_dir):
+        captured_repair["script"] = script
+        captured_repair["error_details"] = error_details
+        captured_repair["artifact_dir"] = artifact_dir
+        return assisted_result('doc.saveAs("/data/output.FCStd")', [{"name": "known_error_fix"}])
+
+    monkeypatch.setattr(cadbench, "repair_code_with_mcp_assistance", fake_repair)
+    monkeypatch.setattr(
+        cadbench,
+        "try_execute_freecad_script",
+        lambda _script, file_suffix, artifact_dir: cadbench.FreeCADExecutionResult(
+            artifact_dir / f"output{file_suffix}.FCStd"
+        ),
+    )
+
+    result = cadbench.build_model_result("prompt", cadbench.DEFAULT_MODEL, "_model1", tmp_path)
+
+    assert result["repaired"] is True
+    assert result["repair_attempted"] is True
+    assert result["fcstd_url"].endswith("/output_model1.FCStd")
+    assert result["original_script"] == "The script ran successfully with dimensions around 90×92×23 units."
+    assert captured_repair["script"] == result["original_script"]
+    assert captured_repair["artifact_dir"] == tmp_path / "mcp_model1_syntax_repair"
+    assert "Generated script was not valid Python" in captured_repair["error_details"]
+    assert "Syntax repair succeeded" in result["stages"]
 
 
 def test_build_model_result_reports_missing_fcstd_save(monkeypatch, tmp_path):
@@ -766,6 +862,8 @@ def test_build_model_result_uses_assisted_generation(monkeypatch, tmp_path):
 
 
 def test_mcp_assistance_falls_back_to_context_prompt_when_tools_are_rejected(monkeypatch, tmp_path):
+    stub_mcp_tool_bridge(monkeypatch)
+
     def reject_tools(*_args, **_kwargs):
         raise RuntimeError("OpenRouter error 400: tools are not supported by this model")
 
@@ -773,7 +871,7 @@ def test_mcp_assistance_falls_back_to_context_prompt_when_tools_are_rejected(mon
     monkeypatch.setattr(
         cadbench.openrouter_client,
         "generate_code_with_openrouter",
-        lambda prompt, model_name: "print('context fallback')",
+        lambda prompt, model_name, system_prompt=None: "print('context fallback')",
     )
 
     result = cadbench.mcp_assistant.generate_code_with_mcp_assistance(
@@ -783,11 +881,74 @@ def test_mcp_assistance_falls_back_to_context_prompt_when_tools_are_rejected(mon
     )
 
     assert result.script == "print('context fallback')"
-    assert result.tool_trace[0]["name"] == "tool_calling_fallback"
-    assert "context only" in result.tool_trace[0]["result"]["fallback"]
+    assert [entry["name"] for entry in result.tool_trace[:4]] == [
+        "search_docs",
+        "search_freecad_api_docs",
+        "get_examples",
+        "openrouter_tool_calling_fallback",
+    ]
+    assert "context only" in result.tool_trace[3]["result"]["fallback"]
+
+
+def test_context_bundle_uses_freecad_queries_instead_of_raw_user_prompt():
+    _bundle, trace = freecad_context.build_context_bundle_with_trace("A small cargo airplane.")
+
+    assert trace[0]["arguments"]["query"] == freecad_context.DEFAULT_CONTEXT_DOC_QUERY
+    assert trace[1]["arguments"]["query"] == freecad_context.DEFAULT_API_DOC_QUERY
+    assert trace[2]["arguments"]["topic"] == freecad_context.DEFAULT_EXAMPLE_TOPIC
+    assert all("A small cargo airplane" not in str(entry["arguments"]) for entry in trace)
+
+
+def test_mcp_assistance_sends_cadbench_system_prompt(monkeypatch, tmp_path):
+    stub_mcp_tool_bridge(monkeypatch)
+    captured = {}
+
+    def fake_generate(prompt, model_name, tools, execute_tool, max_tool_rounds=3, system_prompt=None):
+        captured["system_prompt"] = system_prompt
+        captured["prompt"] = prompt
+        return cadbench.openrouter_client.ToolCompletionResult("print('ok')")
+
+    monkeypatch.setattr(cadbench.openrouter_client, "generate_text_with_openrouter_tools", fake_generate)
+
+    result = cadbench.mcp_assistant.generate_code_with_mcp_assistance(
+        "make a bracket",
+        cadbench.DEFAULT_MODEL,
+        tmp_path,
+    )
+
+    assert result.script == "print('ok')"
+    assert captured["system_prompt"] == CADBENCH_SYSTEM_PROMPT
+    assert "User request: make a bracket" in captured["prompt"]
+
+
+def test_mcp_repair_trace_includes_known_error_context(monkeypatch, tmp_path):
+    stub_mcp_tool_bridge(monkeypatch)
+    monkeypatch.setattr(
+        cadbench.openrouter_client,
+        "generate_text_with_openrouter_tools",
+        lambda *_args, **_kwargs: cadbench.openrouter_client.ToolCompletionResult("print('fixed')"),
+    )
+
+    result = cadbench.mcp_assistant.repair_code_with_mcp_assistance(
+        "make a bracket",
+        cadbench.DEFAULT_MODEL,
+        "broken()",
+        "AttributeError: object has no attribute makeGear",
+        tmp_path,
+    )
+
+    assert result.script == "print('fixed')"
+    assert [entry["name"] for entry in result.tool_trace[:4]] == [
+        "search_docs",
+        "search_freecad_api_docs",
+        "get_examples",
+        "known_error_fix",
+    ]
 
 
 def test_mcp_assistance_does_not_fallback_after_rate_limit(monkeypatch, tmp_path):
+    stub_mcp_tool_bridge(monkeypatch)
+
     def reject_tools(*_args, **_kwargs):
         raise RuntimeError("OpenRouter rate limit: Provider returned error")
 
@@ -807,14 +968,53 @@ def test_mcp_assistance_does_not_fallback_after_rate_limit(monkeypatch, tmp_path
 
 def test_context_tools_return_relevant_guidance():
     docs = freecad_context.search_docs("centered cylinder hole through a box", limit=2)
-    api = freecad_context.lookup_api("Part.makeCylinder")
+    api = freecad_context.search_freecad_api_docs(
+        "cylinder primitive",
+        symbol="Part.makeCylinder",
+        limit=2,
+    )
     fixes = freecad_context.known_error_fix("AttributeError: Shape has no attribute makeHole")
 
     assert docs["success"]
     assert any("Boolean" in result["title"] or "primitive" in result["title"].lower() for result in docs["results"])
     assert api["success"]
-    assert api["signature"] == "Part.makeCylinder(radius, height)"
+    assert api["runtime_docker_image"] == "linuxserver/freecad:0.20.2"
+    assert api["results"][0]["matched_symbol"] == "Part.makeCylinder"
+    assert "Part.makeCylinder(radius, height)" in api["results"][0]["usage"]
+    assert api["results"][0]["source_url"].startswith("https://wiki.freecad.org/")
     assert "documented Part functions" in fixes["fixes"][0]
+
+
+def test_freecad_api_docs_can_include_live_wiki_results(monkeypatch):
+    responses = [
+        {
+            "query": {
+                "search": [
+                    {
+                        "pageid": 123,
+                        "title": "Part scripting",
+                        "snippet": "Part <span class=\"searchmatch\">scripting</span> docs",
+                    }
+                ]
+            }
+        },
+        {"query": {"pages": {"123": {"extract": "Part scripting introduction."}}}},
+    ]
+
+    def fake_get(url, params=None, timeout=None):
+        assert url == freecad_context.FREECAD_WIKI_API_URL
+        assert timeout == freecad_context.FREECAD_WIKI_TIMEOUT_SECONDS
+        request = freecad_context.httpx.Request("GET", url)
+        return freecad_context.httpx.Response(200, request=request, json=responses.pop(0))
+
+    monkeypatch.setattr(freecad_context.httpx, "get", fake_get)
+
+    result = freecad_context.search_freecad_api_docs("Part scripting", live_wiki=True)
+
+    assert result["success"]
+    assert result["live_wiki"]["success"]
+    assert result["live_wiki"]["results"][0]["source_url"] == "https://wiki.freecad.org/Part_scripting"
+    assert result["live_wiki"]["results"][0]["snippet"] == "Part scripting docs"
 
 
 def test_validation_tool_server_tracks_runs_and_geometry(monkeypatch, tmp_path):

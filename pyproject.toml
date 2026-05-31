@@ -10,6 +10,9 @@ dependencies = [
     "python-dotenv==1.0.1",
     "Flask-Cors==4.0.0",
     "setuptools>=65.0.0",
+    "mcp[cli]>=1.27.2",
+    "starlette>=1.2.0",
+    "uvicorn>=0.48.0",
 ]
 
 [dependency-groups]
@@ -33,6 +36,8 @@ build-backend = "hatchling.build"
 # Explicitly include app.py and the static directory for the build.
 include = [
     "app.py",
+    "asgi.py",
+    "cadbench_mcp_server.py",
     "config.py",
     "freecad_context.py",
     "freecad_runner.py",

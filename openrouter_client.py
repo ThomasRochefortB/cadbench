@@ -25,10 +25,10 @@ class ToolCompletionResult:
     messages: list[dict[str, Any]] = field(default_factory=list)
 
 
-def generate_code_with_openrouter(prompt: str, model_name: str) -> str:
+def generate_code_with_openrouter(prompt: str, model_name: str, system_prompt: str | None = None) -> str:
     response = create_openrouter_chat_completion(
         model_name,
-        [{"role": "user", "content": prompt}],
+        _initial_messages(prompt, system_prompt),
     )
     return extract_openrouter_output_text(response.json())
 
@@ -39,8 +39,9 @@ def generate_text_with_openrouter_tools(
     tools: list[dict[str, Any]],
     execute_tool: ToolExecutor,
     max_tool_rounds: int = 3,
+    system_prompt: str | None = None,
 ) -> ToolCompletionResult:
-    messages: list[dict[str, Any]] = [{"role": "user", "content": prompt}]
+    messages = _initial_messages(prompt, system_prompt)
     tool_trace: list[dict[str, Any]] = []
 
     for _round_index in range(max_tool_rounds):
@@ -204,6 +205,14 @@ def _first_choice(response_json: dict[str, Any]) -> dict[str, Any]:
     if not choices:
         raise RuntimeError("OpenRouter response did not include choices")
     return choices[0]
+
+
+def _initial_messages(prompt: str, system_prompt: str | None = None) -> list[dict[str, Any]]:
+    messages: list[dict[str, Any]] = []
+    if system_prompt:
+        messages.append({"role": "system", "content": system_prompt.strip()})
+    messages.append({"role": "user", "content": prompt})
+    return messages
 
 
 def _assistant_tool_message(message: dict[str, Any], tool_calls: list[dict[str, Any]]) -> dict[str, Any]:

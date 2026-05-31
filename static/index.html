@@ -433,7 +433,6 @@
     <form id="promptForm" class="prompt-panel">
       <div class="field-header">
         <label for="promptInput">CAD Prompt</label>
-        <span class="field-note">FreeCAD Python output</span>
       </div>
       <textarea id="promptInput" placeholder="e.g., Create a 20mm x 20mm cube with a centered 10mm cylindrical hole."></textarea>
 
@@ -849,7 +848,7 @@
           } else if (result.repair_attempted) {
             resultMeta.textContent = `${resultMeta.textContent} · repair attempted`;
           }
-          resultMeta.textContent = `${resultMeta.textContent} · MCP-assisted`;
+          resultMeta.textContent = `${resultMeta.textContent} · MCP-standard`;
           
           // Display script if present
           if (result.script) {
@@ -880,11 +879,11 @@
             extraScriptContainer.appendChild(collapsibleCodeBlock('Repair attempt script', result.repair_script));
           }
           if (result.tool_trace?.length) {
-            extraScriptContainer.appendChild(collapsibleCodeBlock('MCP tool trace', JSON.stringify(result.tool_trace, null, 2)));
+            extraScriptContainer.appendChild(collapsibleCodeBlock('MCP activity trace', JSON.stringify(result.tool_trace, null, 2)));
           }
           if (result.repair_tool_trace?.length) {
             extraScriptContainer.appendChild(
-              collapsibleCodeBlock('MCP repair tool trace', JSON.stringify(result.repair_tool_trace, null, 2))
+              collapsibleCodeBlock('MCP repair activity trace', JSON.stringify(result.repair_tool_trace, null, 2))
             );
           }
           

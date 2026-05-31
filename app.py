@@ -9,7 +9,6 @@ from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
 import httpx
 
-import config
 import freecad_runner
 import mcp_assistant
 import model_catalog
@@ -22,9 +21,7 @@ CORS(app)
 
 load_dotenv()
 
-OPENROUTER_USER_MODELS_URL = config.OPENROUTER_USER_MODELS_URL
 FreeCADExecutionResult = freecad_runner.FreeCADExecutionResult
-_HTTPX_RESPONSE_TYPE = httpx.Response
 GENERATION_MODE_MCP_ASSISTED = "mcp"
 
 
@@ -38,10 +35,6 @@ def try_execute_freecad_script(
     return freecad_runner.try_execute_freecad_script(script, file_suffix, artifact_dir)
 
 
-def strip_markdown_code_fence(script: str) -> str:
-    return script_normalizer.strip_markdown_code_fence(script)
-
-
 def prepare_freecad_script(script: str, file_suffix: str) -> str:
     return script_normalizer.prepare_freecad_script(script, file_suffix)
 
@@ -52,10 +45,6 @@ def extract_openrouter_output_text(response_json: dict) -> str:
 
 def format_openrouter_http_error(response: httpx.Response) -> str:
     return openrouter_client.format_openrouter_http_error(response)
-
-
-def openrouter_max_tokens() -> int:
-    return openrouter_client.openrouter_max_tokens()
 
 
 def generate_code_with_openrouter(prompt: str, model_name: str) -> str:
@@ -90,10 +79,6 @@ def is_free_openrouter_model(model: dict) -> bool:
 
 def is_supported_model_id(model_name: str) -> bool:
     return model_catalog.is_supported_model_id(model_name)
-
-
-def display_name_from_model_id(model_id: str) -> str:
-    return model_catalog.display_name_from_model_id(model_id)
 
 
 def fallback_model_info() -> list[dict]:
@@ -153,12 +138,15 @@ def build_model_result(
         if tool_trace:
             model_result["tool_trace"] = tool_trace
             model_result["stages"].append("Used FreeCAD context/validation tools")
-        try:
-            script = prepare_freecad_script(script, file_suffix)
-        except ValueError as exc:
-            model_result["script"] = script
-            model_result["error"] = f"Generated script was not valid Python: {exc}"
-            model_result["stages"].append("Generated script failed Python syntax validation")
+        script = prepare_or_repair_generated_script(
+            model_result,
+            user_prompt,
+            model_name,
+            script,
+            file_suffix,
+            artifact_dir,
+        )
+        if script is None:
             return model_result
         execution = try_execute_freecad_script(script, file_suffix, artifact_dir)
 
@@ -216,6 +204,57 @@ def build_model_result(
             model_result["error"] = f"Failed to generate script: {error_message}"
 
     return model_result
+
+
+def prepare_or_repair_generated_script(
+    model_result: dict,
+    user_prompt: str,
+    model_name: str,
+    script: str,
+    file_suffix: str,
+    artifact_dir: Path,
+) -> str | None:
+    try:
+        return prepare_freecad_script(script, file_suffix)
+    except ValueError as exc:
+        syntax_error_details = f"Generated script was not valid Python: {exc}"
+        model_result["stages"].append("Generated script failed Python syntax validation; requested repair")
+        try:
+            repair_result = repair_code_with_mcp_assistance(
+                user_prompt,
+                model_name,
+                script,
+                syntax_error_details,
+                artifact_dir / f"mcp{file_suffix}_syntax_repair",
+            )
+            repaired_script = repair_result.script
+            repair_tool_trace = repair_result.tool_trace
+            if repair_tool_trace:
+                model_result["repair_tool_trace"] = repair_tool_trace
+                model_result["stages"].append("Used FreeCAD syntax repair tools")
+            try:
+                prepared_repaired_script = prepare_freecad_script(repaired_script, file_suffix)
+            except ValueError as repair_exc:
+                model_result["repair_attempted"] = True
+                model_result["script"] = script
+                model_result["repair_script"] = repaired_script
+                model_result["error"] = syntax_error_details
+                model_result["repair_error_details"] = f"Syntax repair was not valid Python: {repair_exc}"
+                model_result["stages"].append("Syntax repair failed Python validation")
+                return None
+
+            model_result["repaired"] = True
+            model_result["repair_attempted"] = True
+            model_result["original_script"] = script
+            model_result["stages"].append("Syntax repair succeeded")
+            return prepared_repaired_script
+        except Exception as repair_exc:
+            model_result["repair_attempted"] = True
+            model_result["script"] = script
+            model_result["error"] = syntax_error_details
+            model_result["repair_error_details"] = f"Syntax repair request failed: {repair_exc}"
+            model_result["stages"].append("Syntax repair request failed")
+            return None
 
 
 def should_repair_execution(execution: FreeCADExecutionResult) -> bool:
