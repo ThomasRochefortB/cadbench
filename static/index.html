@@ -305,17 +305,11 @@
       height: 100%;
     }
 
-    .viewer-toolbar,
     .viewer-actions,
     .dimension-layer,
     .axis-widget {
       position: absolute;
       z-index: 2;
-    }
-
-    .viewer-toolbar {
-      top: 16px;
-      left: 16px;
     }
 
     .viewer-actions {
@@ -331,7 +325,6 @@
       backdrop-filter: blur(8px);
     }
 
-    .viewer-control,
     .viewer-icon-button {
       display: inline-flex;
       align-items: center;
@@ -342,18 +335,6 @@
       background: rgba(255, 255, 255, 0.86);
       border: 0;
       box-shadow: none;
-    }
-
-    .viewer-control {
-      gap: 8px;
-      height: 40px;
-      padding: 0 12px;
-      border: 1px solid #dfe9ef;
-      border-radius: 8px;
-      font-size: 0.9rem;
-      font-weight: 720;
-      -webkit-backdrop-filter: blur(8px);
-      backdrop-filter: blur(8px);
     }
 
     .viewer-icon-button {
@@ -368,7 +349,6 @@
       border-left: 0;
     }
 
-    .viewer-control:hover,
     .viewer-icon-button:hover {
       color: var(--accent-strong);
       background: #ffffff;
@@ -376,7 +356,6 @@
       transform: none;
     }
 
-    .viewer-control svg,
     .viewer-icon-button svg {
       width: 18px;
       height: 18px;
@@ -389,87 +368,46 @@
       pointer-events: none;
     }
 
-    .dimension {
+    .dimension-svg {
       position: absolute;
-      color: #4f80c6;
+      inset: 0;
+      display: block;
+      width: 100%;
+      height: 100%;
+      overflow: visible;
+    }
+
+    .dimension-line,
+    .dimension-extension {
+      fill: none;
+      stroke-linecap: round;
+      vector-effect: non-scaling-stroke;
+    }
+
+    .dimension-line {
+      stroke: #7facdf;
+      stroke-width: 1.25;
+    }
+
+    .dimension-extension {
+      stroke: #9ec0e9;
+      stroke-width: 1;
+      opacity: 0.52;
+    }
+
+    .dimension-label {
+      fill: #4f80c6;
+      stroke: rgba(255, 255, 255, 0.94);
+      stroke-width: 4px;
+      paint-order: stroke;
       font-size: 0.82rem;
       font-weight: 740;
-      text-shadow: 0 1px 0 rgba(255, 255, 255, 0.88);
+      dominant-baseline: middle;
+      pointer-events: none;
     }
 
-    .dimension::before,
-    .dimension::after {
-      position: absolute;
-      background: #7facdf;
-      content: "";
-    }
-
-    .dimension::before {
-      height: 1px;
-      right: 0;
-      left: 0;
-      top: 50%;
-    }
-
-    .dimension::after {
-      right: 0;
-      top: calc(50% - 4px);
-      width: 8px;
-      height: 8px;
-      background: transparent;
-      border-top: 1px solid #7facdf;
-      border-right: 1px solid #7facdf;
-      transform: rotate(45deg);
-    }
-
-    .dimension span {
-      position: absolute;
-      left: 50%;
-      bottom: 8px;
-      transform: translateX(-50%);
-      white-space: nowrap;
-    }
-
-    .dimension-width {
-      right: 46%;
-      bottom: 42px;
-      left: 16%;
-      transform: rotate(-2deg);
-    }
-
-    .dimension-depth {
-      right: 14%;
-      bottom: 70px;
-      left: 61%;
-      transform: rotate(-18deg);
-    }
-
-    .dimension-height {
-      top: 29%;
-      right: 7%;
-      width: 1px;
-      height: 43%;
-    }
-
-    .dimension-height::before {
-      width: 1px;
-      height: 100%;
-      top: 0;
-      left: 0;
-    }
-
-    .dimension-height::after {
-      right: -4px;
-      top: 0;
-      transform: rotate(-45deg);
-    }
-
-    .dimension-height span {
-      top: 50%;
-      bottom: auto;
-      right: 12px;
-      left: auto;
-      transform: translateY(-50%);
+    .dimension-vector.is-hidden {
+      display: none;
     }
 
     .axis-widget {
@@ -719,6 +657,152 @@
       margin-bottom: 10px;
     }
 
+    .step-timeline {
+      margin: 14px 0 16px;
+      padding: 14px;
+      background: #f7faf9;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+    }
+
+    .step-timeline h3 {
+      margin-bottom: 12px;
+    }
+
+    .step-list {
+      position: relative;
+      display: grid;
+      gap: 10px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .step-item {
+      position: relative;
+      display: grid;
+      grid-template-columns: 30px minmax(0, 1fr);
+      gap: 10px;
+    }
+
+    .step-item:not(:last-child)::before {
+      position: absolute;
+      top: 28px;
+      bottom: -11px;
+      left: 14px;
+      width: 1px;
+      background: #c9d8d5;
+      content: "";
+    }
+
+    .step-marker {
+      position: relative;
+      z-index: 1;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 28px;
+      height: 28px;
+      color: var(--accent-strong);
+      background: #e5f4ef;
+      border: 1px solid #b8ddd5;
+      border-radius: 999px;
+      font-size: 0.72rem;
+      font-weight: 800;
+    }
+
+    .step-item.is-tool .step-marker {
+      color: #73501f;
+      background: #fff5e8;
+      border-color: #ead0a9;
+    }
+
+    .step-item.is-setup .step-marker {
+      color: #526575;
+      background: #eef4f7;
+      border-color: #cad8df;
+    }
+
+    .step-item.is-error .step-marker {
+      color: var(--danger);
+      background: var(--danger-bg);
+      border-color: #ffd0c7;
+    }
+
+    .step-card {
+      min-width: 0;
+      padding: 10px 12px;
+      background: var(--surface);
+      border: 1px solid #deebe8;
+      border-radius: 8px;
+    }
+
+    .step-title-row {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 4px;
+    }
+
+    .step-title {
+      color: var(--ink-soft);
+      font-size: 0.92rem;
+      font-weight: 760;
+    }
+
+    .step-kind {
+      flex: 0 0 auto;
+      color: var(--muted);
+      font-size: 0.72rem;
+      font-weight: 780;
+      text-transform: uppercase;
+    }
+
+    .step-detail {
+      color: var(--muted);
+      font-size: 0.84rem;
+      overflow-wrap: anywhere;
+    }
+
+    .step-detail + .step-detail {
+      margin-top: 3px;
+    }
+
+    .step-subdetails {
+      margin-top: 8px;
+      padding: 8px 10px;
+      background: #fbfdfc;
+      border: 1px solid #deebe8;
+      border-radius: 8px;
+    }
+
+    .step-subdetails summary {
+      color: var(--accent-strong);
+      font-size: 0.82rem;
+      font-weight: 740;
+    }
+
+    .step-sublist {
+      display: grid;
+      gap: 6px;
+      margin: 8px 0 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .step-subitem {
+      color: var(--muted);
+      font-size: 0.8rem;
+      overflow-wrap: anywhere;
+    }
+
+    .step-empty {
+      margin: 0;
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+
     h2 {
       margin-bottom: 0;
       color: var(--ink);
@@ -821,22 +905,12 @@
         height: 320px;
       }
 
-      .viewer-toolbar,
       .viewer-actions {
         top: 10px;
       }
 
-      .viewer-toolbar {
-        left: 10px;
-      }
-
       .viewer-actions {
         right: 10px;
-      }
-
-      .viewer-control {
-        height: 36px;
-        padding: 0 10px;
       }
 
       .viewer-icon-button {
@@ -844,11 +918,11 @@
         height: 36px;
       }
 
-      .dimension {
+      .dimension-label {
         font-size: 0.72rem;
       }
 
-      .dimension-depth {
+      .dimension-vector[data-axis="y"] {
         display: none;
       }
 
@@ -936,6 +1010,7 @@
         <div id="errorContainer1" style="display: none;">
           <div id="errorMessage1" class="error-message"></div>
         </div>
+        <div id="stepTimeline1" class="step-timeline" hidden></div>
         <div class="script-toolbar">
           <h3>FreeCAD Script</h3>
           <button type="button" class="secondary-button copy-script" data-target="scriptOutput1">Copy</button>
@@ -958,6 +1033,7 @@
         <div id="errorContainer2" style="display: none;">
           <div id="errorMessage2" class="error-message"></div>
         </div>
+        <div id="stepTimeline2" class="step-timeline" hidden></div>
         <div class="script-toolbar">
           <h3>FreeCAD Script</h3>
           <button type="button" class="secondary-button copy-script" data-target="scriptOutput2">Copy</button>
@@ -974,7 +1050,9 @@
     import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
     import { STLLoader } from 'three/addons/loaders/STLLoader.js';
 
+    const SVG_NS = 'http://www.w3.org/2000/svg';
     const DEFAULT_MODEL_ID = 'inclusionai/ling-2.6-flash:free';
+    const CADBENCH_PRELOAD_SOURCE = 'cadbench_preload';
     const loadingStages = [
       'Gathering FreeCAD context and tool results...',
       'Generating tool-assisted script...',
@@ -992,6 +1070,7 @@
         parts.push(`Max output: ${model.max_completion_tokens.toLocaleString()} tokens`);
       }
       if (model.supported_parameters?.includes('tools')) parts.push('Tools');
+      if (model.vision_capable) parts.push('Vision');
       parts.push(model.free ? 'Free endpoint' : 'Paid endpoint');
       return parts.join(' · ');
     }
@@ -1001,6 +1080,7 @@
       option.value = model.id;
       option.textContent = model.name;
       option.dataset.meta = modelMetadataText(model);
+      option.dataset.visionCapable = model.vision_capable ? 'true' : 'false';
       option.title = option.dataset.meta;
       return option;
     }
@@ -1105,6 +1185,7 @@
     let renderers = [null, null];
     let controls = [null, null];
     let viewerDistances = [50, 50];
+    let viewerModelSizes = [null, null];
     
     function initViewer(index) {
       const containerId = `modelViewer${index+1}`;
@@ -1146,16 +1227,6 @@
       if (container.dataset.viewerChromeReady) return;
       container.dataset.viewerChromeReady = 'true';
 
-      const toolbar = document.createElement('div');
-      toolbar.className = 'viewer-toolbar';
-      toolbar.innerHTML = `
-        <button type="button" class="viewer-control" data-viewer-action="isometric" title="Reset to isometric view" aria-label="Reset to isometric view">
-          ${viewerIcon('cube')}
-          <span>Isometric</span>
-          ${viewerIcon('chevron')}
-        </button>
-      `;
-
       const actions = document.createElement('div');
       actions.className = 'viewer-actions';
       actions.innerHTML = `
@@ -1182,7 +1253,7 @@
         <span class="axis-label axis-label-z">Z</span>
       `;
 
-      container.append(toolbar, actions, dimensionLayer, axisWidget);
+      container.append(actions, dimensionLayer, axisWidget);
       container.querySelectorAll('[data-viewer-action="isometric"]').forEach((button) => {
         button.addEventListener('click', () => setIsometricView(index));
       });
@@ -1202,7 +1273,6 @@
     function viewerIcon(name) {
       const icons = {
         cube: '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3 20 7.5V16.5L12 21 4 16.5V7.5L12 3Z" stroke-width="2" stroke-linejoin="round"/><path d="M12 12 20 7.5M12 12V21M12 12 4 7.5" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
-        chevron: '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M7 10L12 15L17 10" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
         expand: '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M8 4H4V8M16 4H20V8M20 16V20H16M4 16V20H8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
       };
       return icons[name];
@@ -1235,11 +1305,13 @@
       renderers[index].setSize(width, height, false);
       cameras[index].aspect = width / height;
       cameras[index].updateProjectionMatrix();
+      renderDimensionOverlay(index);
     }
     
     function animate(index) {
       requestAnimationFrame(() => animate(index));
       if (controls[index]) controls[index].update();
+      renderDimensionOverlay(index);
       if (renderers[index] && scenes[index] && cameras[index]) {
         renderers[index].render(scenes[index], cameras[index]);
       }
@@ -1296,23 +1368,247 @@
     function updateDimensionOverlay(index, modelSize) {
       const layer = document.querySelector(`#modelViewer${index+1} .dimension-layer`);
       if (!layer) return;
+      viewerModelSizes[index] = modelSize ? modelSize.clone() : null;
       layer.replaceChildren();
-      if (!modelSize) return;
+      if (!viewerModelSizes[index]) return;
 
-      layer.append(
-        dimensionElement('dimension-width', modelSize.x),
-        dimensionElement('dimension-depth', modelSize.y),
-        dimensionElement('dimension-height', modelSize.z)
+      layer.appendChild(dimensionSvg(index));
+      renderDimensionOverlay(index);
+    }
+
+    function dimensionSvg(index) {
+      const markerId = `dimension-arrow-${index + 1}`;
+      const svg = svgElement('svg', {
+        class: 'dimension-svg',
+        'aria-hidden': 'true',
+      });
+      const defs = svgElement('defs');
+      const marker = svgElement('marker', {
+        id: markerId,
+        viewBox: '0 0 10 10',
+        refX: '5',
+        refY: '5',
+        markerWidth: '7',
+        markerHeight: '7',
+        orient: 'auto-start-reverse',
+        markerUnits: 'strokeWidth',
+      });
+      marker.appendChild(svgElement('path', {
+        d: 'M2 2 L8 5 L2 8',
+        fill: 'none',
+        stroke: '#7facdf',
+        'stroke-width': '1.5',
+        'stroke-linecap': 'round',
+        'stroke-linejoin': 'round',
+      }));
+      defs.appendChild(marker);
+      svg.appendChild(defs);
+
+      for (const axis of ['x', 'y', 'z']) {
+        const group = svgElement('g', {
+          class: 'dimension-vector',
+          'data-axis': axis,
+        });
+        group.appendChild(svgElement('line', { class: 'dimension-extension dimension-extension-start' }));
+        group.appendChild(svgElement('line', { class: 'dimension-extension dimension-extension-end' }));
+        group.appendChild(svgElement('line', {
+          class: 'dimension-line',
+          'marker-start': `url(#${markerId})`,
+          'marker-end': `url(#${markerId})`,
+        }));
+        group.appendChild(svgElement('text', {
+          class: 'dimension-label',
+          'text-anchor': 'middle',
+        }));
+        svg.appendChild(group);
+      }
+
+      return svg;
+    }
+
+    function svgElement(tagName, attributes = {}) {
+      const element = document.createElementNS(SVG_NS, tagName);
+      for (const [name, value] of Object.entries(attributes)) {
+        element.setAttribute(name, value);
+      }
+      return element;
+    }
+
+    function renderDimensionOverlay(index) {
+      const layer = document.querySelector(`#modelViewer${index+1} .dimension-layer`);
+      const svg = layer?.querySelector('.dimension-svg');
+      const modelSize = viewerModelSizes[index];
+      if (!layer || !svg || !modelSize || !cameras[index]) return;
+
+      const width = Math.max(layer.clientWidth, 1);
+      const height = Math.max(layer.clientHeight, 1);
+      svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+      svg.setAttribute('width', width);
+      svg.setAttribute('height', height);
+
+      cameras[index].updateMatrixWorld();
+      const center = projectDimensionPoint(new THREE.Vector3(0, 0, 0), index, width, height);
+      const offset = Math.max(24, Math.min(42, Math.min(width, height) * 0.075));
+      for (const dimension of modelDimensionEdges(modelSize, offset)) {
+        renderDimensionVector(svg, dimension, index, width, height, center);
+      }
+    }
+
+    function modelDimensionEdges(modelSize, offset) {
+      const x = Math.abs(modelSize.x);
+      const y = Math.abs(modelSize.y);
+      const z = Math.abs(modelSize.z);
+      const hx = x / 2;
+      const hy = y / 2;
+      const hz = z / 2;
+      const bottomFrontRight = new THREE.Vector3(hx, -hy, -hz);
+
+      return [
+        {
+          axis: 'x',
+          value: x,
+          from: new THREE.Vector3(-hx, -hy, -hz),
+          to: bottomFrontRight.clone(),
+          offset,
+        },
+        {
+          axis: 'y',
+          value: y,
+          from: bottomFrontRight.clone(),
+          to: new THREE.Vector3(hx, hy, -hz),
+          offset,
+        },
+        {
+          axis: 'z',
+          value: z,
+          from: bottomFrontRight.clone(),
+          to: new THREE.Vector3(hx, -hy, hz),
+          offset: offset * 1.1,
+        },
+      ];
+    }
+
+    function renderDimensionVector(svg, dimension, index, width, height, center) {
+      const group = svg.querySelector(`.dimension-vector[data-axis="${dimension.axis}"]`);
+      if (!group || dimension.value < 0.01) {
+        group?.classList.add('is-hidden');
+        return;
+      }
+
+      const start = projectDimensionPoint(dimension.from, index, width, height);
+      const end = projectDimensionPoint(dimension.to, index, width, height);
+      const dx = end.x - start.x;
+      const dy = end.y - start.y;
+      const length = Math.hypot(dx, dy);
+      if (length < 8) {
+        group.classList.add('is-hidden');
+        return;
+      }
+      group.classList.remove('is-hidden');
+
+      let nx = -dy / length;
+      let ny = dx / length;
+      const midpoint = {
+        x: start.x + dx / 2,
+        y: start.y + dy / 2,
+      };
+      const awayFromModel = {
+        x: midpoint.x - center.x,
+        y: midpoint.y - center.y,
+      };
+      if ((nx * awayFromModel.x) + (ny * awayFromModel.y) < 0) {
+        nx *= -1;
+        ny *= -1;
+      }
+
+      const lineStart = {
+        x: start.x + nx * dimension.offset,
+        y: start.y + ny * dimension.offset,
+      };
+      const lineEnd = {
+        x: end.x + nx * dimension.offset,
+        y: end.y + ny * dimension.offset,
+      };
+      const extensionInset = 5;
+      setLine(group.querySelector('.dimension-extension-start'), {
+        x: start.x + nx * extensionInset,
+        y: start.y + ny * extensionInset,
+      }, lineStart);
+      setLine(group.querySelector('.dimension-extension-end'), {
+        x: end.x + nx * extensionInset,
+        y: end.y + ny * extensionInset,
+      }, lineEnd);
+      setLine(group.querySelector('.dimension-line'), lineStart, lineEnd);
+      setDimensionLabel(
+        group.querySelector('.dimension-label'),
+        dimension,
+        lineStart,
+        lineEnd,
+        { x: nx, y: ny },
+        width,
+        height
       );
     }
 
-    function dimensionElement(className, value) {
-      const dimension = document.createElement('div');
-      dimension.className = `dimension ${className}`;
-      const label = document.createElement('span');
-      label.textContent = `${Math.abs(value).toFixed(2)} mm`;
-      dimension.appendChild(label);
-      return dimension;
+    function projectDimensionPoint(point, index, width, height) {
+      const projected = point.clone().project(cameras[index]);
+      return {
+        x: (projected.x * 0.5 + 0.5) * width,
+        y: (-projected.y * 0.5 + 0.5) * height,
+      };
+    }
+
+    function setLine(line, start, end) {
+      line.setAttribute('x1', start.x.toFixed(2));
+      line.setAttribute('y1', start.y.toFixed(2));
+      line.setAttribute('x2', end.x.toFixed(2));
+      line.setAttribute('y2', end.y.toFixed(2));
+    }
+
+    function setDimensionLabel(label, dimension, start, end, normal, width, height) {
+      const midpoint = {
+        x: (start.x + end.x) / 2,
+        y: (start.y + end.y) / 2,
+      };
+      let labelX;
+      let labelY;
+      let textAnchor = 'middle';
+      let labelAngle = null;
+
+      if (dimension.axis === 'z') {
+        const side = normal.x >= 0 ? -1 : 1;
+        labelX = midpoint.x + side * 12;
+        labelY = midpoint.y;
+        textAnchor = side < 0 ? 'end' : 'start';
+      } else {
+        labelX = midpoint.x - normal.x * 12;
+        labelY = midpoint.y - normal.y * 12;
+        labelAngle = readableTextAngle(Math.atan2(end.y - start.y, end.x - start.x) * 180 / Math.PI);
+      }
+
+      labelX = Math.max(10, Math.min(width - 10, labelX));
+      labelY = Math.max(10, Math.min(height - 10, labelY));
+      label.textContent = `${dimension.value.toFixed(2)} mm`;
+      label.setAttribute('x', labelX.toFixed(2));
+      label.setAttribute('y', labelY.toFixed(2));
+      label.setAttribute('text-anchor', textAnchor);
+      if (labelAngle !== null) {
+        label.setAttribute(
+          'transform',
+          `rotate(${labelAngle.toFixed(2)} ${labelX.toFixed(2)} ${labelY.toFixed(2)})`
+        );
+      } else {
+        label.removeAttribute('transform');
+      }
+    }
+
+    function readableTextAngle(angle) {
+      let normalized = angle;
+      while (normalized > 180) normalized -= 360;
+      while (normalized <= -180) normalized += 360;
+      if (normalized > 90) normalized -= 180;
+      if (normalized < -90) normalized += 180;
+      return normalized;
     }
     
     // Load STL model
@@ -1411,6 +1707,7 @@
       setScriptOutput("scriptOutput1", "Generating...", "busy");
       document.getElementById("downloadLinkContainer1").textContent = "";
       document.getElementById("extraScriptContainer1").replaceChildren();
+      renderPendingTimeline(document.getElementById("stepTimeline1"));
       document.getElementById("errorMessage1").replaceChildren();
       document.getElementById("viewerContainer1").style.display = "none";
       document.getElementById("errorContainer1").style.display = "none";
@@ -1422,6 +1719,11 @@
         );
         document.getElementById(`downloadLinkContainer${index}`).textContent = "";
         document.getElementById(`extraScriptContainer${index}`).replaceChildren();
+        if (compareModels) {
+          renderPendingTimeline(document.getElementById(`stepTimeline${index}`));
+        } else {
+          clearTimeline(document.getElementById(`stepTimeline${index}`));
+        }
         document.getElementById(`errorMessage${index}`).replaceChildren();
         document.getElementById(`viewerContainer${index}`).style.display = "none";
         document.getElementById(`errorContainer${index}`).style.display = "none";
@@ -1430,109 +1732,470 @@
       submitButton.disabled = true;
 
       try {
-        const res = await fetch("/api/generate", {
+        const res = await fetch("/api/generate/stream", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(model2 ? { prompt, model1, model2 } : { prompt, model1 }),
         });
-        
-        const data = await res.json();
+        await readGenerationStream(res, compareModels ? 2 : 1);
         stopLoadingState();
         submitButton.disabled = false;
-        
-        const expectedResultCount = compareModels ? 2 : 1;
-        if (!data.results || data.results.length !== expectedResultCount) {
-          throw new Error("Invalid response from server");
-        }
-        
-        // Process results for each model
-        data.results.forEach((result, index) => {
-          const downloadContainer = document.getElementById(`downloadLinkContainer${index+1}`);
-          const errorContainer = document.getElementById(`errorContainer${index+1}`);
-          const errorMessage = document.getElementById(`errorMessage${index+1}`);
-          const resultMeta = document.getElementById(`resultMeta${index+1}`);
-          const extraScriptContainer = document.getElementById(`extraScriptContainer${index+1}`);
-
-          if (result.repaired) {
-            resultMeta.textContent = `${resultMeta.textContent} · repaired after initial FreeCAD failure`;
-          } else if (result.repair_attempted) {
-            resultMeta.textContent = `${resultMeta.textContent} · repair attempted`;
-          }
-          resultMeta.textContent = `${resultMeta.textContent} · MCP-standard`;
-          
-          // Display script if present
-          if (result.script) {
-            setScriptOutput(`scriptOutput${index+1}`, result.script);
-          } else {
-            setScriptOutput(`scriptOutput${index+1}`, "No script was generated", "placeholder");
-          }
-          
-          // Handle error messages
-          if (result.error) {
-            errorContainer.style.display = 'block';
-            errorMessage.replaceChildren();
-            errorMessage.appendChild(document.createTextNode(result.error));
-
-            if (result.error_details) {
-              const details = document.createElement('div');
-              details.className = 'error-details';
-              details.textContent = result.error_details;
-              errorMessage.appendChild(details);
-            }
-          }
-
-          extraScriptContainer.replaceChildren();
-          if (result.original_script) {
-            extraScriptContainer.appendChild(collapsibleCodeBlock('Original failed script', result.original_script));
-          }
-          if (result.repair_script && !result.repaired) {
-            extraScriptContainer.appendChild(collapsibleCodeBlock('Repair attempt script', result.repair_script));
-          }
-          if (result.tool_trace?.length) {
-            extraScriptContainer.appendChild(collapsibleCodeBlock('MCP activity trace', JSON.stringify(result.tool_trace, null, 2)));
-          }
-          if (result.repair_tool_trace?.length) {
-            extraScriptContainer.appendChild(
-              collapsibleCodeBlock('MCP repair activity trace', JSON.stringify(result.repair_tool_trace, null, 2))
-            );
-          }
-          
-          // Handle download links
-          if (result.fcstd_url) {
-            const links = [];
-            
-            // Add FCStd download link
-            const fcstdLink = document.createElement("a");
-            fcstdLink.href = result.fcstd_url;
-            fcstdLink.textContent = "Download FCStd";
-            links.push(fcstdLink);
-            
-            // Add STL download link if available
-            if (result.stl_url) {
-              links.push(document.createTextNode(" | "));
-              const stlLink = document.createElement("a");
-              stlLink.href = result.stl_url;
-              stlLink.textContent = "Download STL";
-              links.push(stlLink);
-              
-              // Load the STL in the viewer
-              loadSTL(result.stl_url, index);
-            }
-            
-            downloadContainer.replaceChildren(...links);
-          } else {
-            downloadContainer.textContent = result.error ? "Generation failed" : "FreeCAD not available";
-          }
-        });
       } catch (err) {
         stopLoadingState();
         submitButton.disabled = false;
         setScriptOutput("scriptOutput1", "Error: " + err.message);
+        clearTimeline(document.getElementById("stepTimeline1"));
         if (compareModels) {
           setScriptOutput("scriptOutput2", "Error: " + err.message);
+          clearTimeline(document.getElementById("stepTimeline2"));
         }
       }
     });
+
+    async function readGenerationStream(response, expectedResultCount) {
+      if (!response.ok) {
+        const error = await response.json().catch(async () => ({ error: await response.text() }));
+        throw new Error(error.error || `Generation failed with status ${response.status}`);
+      }
+      if (!response.body) {
+        throw new Error('Streaming responses are not supported by this browser.');
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let resultCount = 0;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          const event = JSON.parse(line);
+          if (event.type === 'result') {
+            resultCount += 1;
+          }
+          handleGenerationEvent(event);
+        }
+      }
+
+      if (buffer.trim()) {
+        const event = JSON.parse(buffer);
+        if (event.type === 'result') {
+          resultCount += 1;
+        }
+        handleGenerationEvent(event);
+      }
+      if (resultCount !== expectedResultCount) {
+        throw new Error('Generation stream ended before all results arrived.');
+      }
+    }
+
+    function handleGenerationEvent(event) {
+      if (event.type === 'stage') {
+        if (isToolSummaryStage(event.stage)) {
+          return;
+        }
+        appendTimelineEvent(event.index, {
+          type: event.stage?.toLowerCase().includes('failed') ? 'error' : 'stage',
+          title: event.stage,
+          kind: 'Step',
+        });
+      } else if (event.type === 'tool_call') {
+        if (isPreloadToolCall(event.call)) {
+          appendPreloadTimelineEvent(event.index, event.call, event.phase || 'Initial MCP');
+        } else {
+          appendTimelineEvent(event.index, timelineEventFromToolCall(event.call, event.phase || 'MCP'));
+        }
+      } else if (event.type === 'result') {
+        renderModelResult(event.result, event.index - 1);
+      }
+    }
+
+    function renderModelResult(result, index) {
+      const downloadContainer = document.getElementById(`downloadLinkContainer${index+1}`);
+      const errorContainer = document.getElementById(`errorContainer${index+1}`);
+      const errorMessage = document.getElementById(`errorMessage${index+1}`);
+      const resultMeta = document.getElementById(`resultMeta${index+1}`);
+      const extraScriptContainer = document.getElementById(`extraScriptContainer${index+1}`);
+      const stepTimeline = document.getElementById(`stepTimeline${index+1}`);
+
+      if (result.repaired) {
+        resultMeta.textContent = `${resultMeta.textContent} · repaired after initial FreeCAD failure`;
+      } else if (result.repair_attempted) {
+        resultMeta.textContent = `${resultMeta.textContent} · repair attempted`;
+      }
+      resultMeta.textContent = `${resultMeta.textContent} · MCP-standard`;
+
+      if (result.script) {
+        setScriptOutput(`scriptOutput${index+1}`, result.script);
+      } else {
+        setScriptOutput(`scriptOutput${index+1}`, "No script was generated", "placeholder");
+      }
+
+      if (result.error) {
+        errorContainer.style.display = 'block';
+        errorMessage.replaceChildren();
+        errorMessage.appendChild(document.createTextNode(result.error));
+
+        if (result.error_details) {
+          const details = document.createElement('div');
+          details.className = 'error-details';
+          details.textContent = result.error_details;
+          errorMessage.appendChild(details);
+        }
+      }
+
+      renderTimeline(stepTimeline, result);
+
+      extraScriptContainer.replaceChildren();
+      if (result.original_script) {
+        extraScriptContainer.appendChild(collapsibleCodeBlock('Original failed script', result.original_script));
+      }
+      if (result.repair_script && !result.repaired) {
+        extraScriptContainer.appendChild(collapsibleCodeBlock('Repair attempt script', result.repair_script));
+      }
+      if (result.tool_trace?.length) {
+        extraScriptContainer.appendChild(collapsibleCodeBlock('MCP activity trace', JSON.stringify(result.tool_trace, null, 2)));
+      }
+      if (result.repair_tool_trace?.length) {
+        extraScriptContainer.appendChild(
+          collapsibleCodeBlock('MCP repair activity trace', JSON.stringify(result.repair_tool_trace, null, 2))
+        );
+      }
+
+      if (result.fcstd_url) {
+        const links = [];
+        const fcstdLink = document.createElement("a");
+        fcstdLink.href = result.fcstd_url;
+        fcstdLink.textContent = "Download FCStd";
+        links.push(fcstdLink);
+
+        if (result.stl_url) {
+          links.push(document.createTextNode(" | "));
+          const stlLink = document.createElement("a");
+          stlLink.href = result.stl_url;
+          stlLink.textContent = "Download STL";
+          links.push(stlLink);
+          loadSTL(result.stl_url, index);
+        }
+
+        downloadContainer.replaceChildren(...links);
+      } else {
+        downloadContainer.textContent = result.error ? "Generation failed" : "FreeCAD not available";
+      }
+    }
+
+    function renderPendingTimeline(container) {
+      container.hidden = false;
+      container.replaceChildren();
+      const title = document.createElement('h3');
+      title.textContent = 'Steps Taken';
+      const message = document.createElement('p');
+      message.className = 'step-empty';
+      message.textContent = 'Waiting for model activity...';
+      container.append(title, message);
+    }
+
+    function clearTimeline(container) {
+      container.hidden = true;
+      container.replaceChildren();
+    }
+
+    function renderTimeline(container, result) {
+      const events = buildTimelineEvents(result);
+      container.replaceChildren();
+      container.hidden = false;
+
+      const title = document.createElement('h3');
+      title.textContent = 'Steps Taken';
+      container.appendChild(title);
+
+      if (!events.length) {
+        const message = document.createElement('p');
+        message.className = 'step-empty';
+        message.textContent = 'No model activity was reported.';
+        container.appendChild(message);
+        return;
+      }
+
+      const list = document.createElement('ol');
+      list.className = 'step-list';
+      events.forEach((event, index) => {
+        list.appendChild(stepElement(event, index + 1));
+      });
+      container.appendChild(list);
+    }
+
+    function appendTimelineEvent(modelIndex, event) {
+      const container = document.getElementById(`stepTimeline${modelIndex}`);
+      container.hidden = false;
+      let title = container.querySelector('h3');
+      if (!title) {
+        title = document.createElement('h3');
+        title.textContent = 'Steps Taken';
+        container.appendChild(title);
+      }
+
+      container.querySelector('.step-empty')?.remove();
+      let list = container.querySelector('.step-list');
+      if (!list) {
+        list = document.createElement('ol');
+        list.className = 'step-list';
+        container.appendChild(list);
+      }
+      list.appendChild(stepElement(event, list.children.length + 1));
+    }
+
+    function appendPreloadTimelineEvent(modelIndex, call, phase) {
+      const phaseKey = phase.toLowerCase().includes('repair') ? 'repair' : 'initial';
+      const container = document.getElementById(`stepTimeline${modelIndex}`);
+      container.hidden = false;
+      let title = container.querySelector('h3');
+      if (!title) {
+        title = document.createElement('h3');
+        title.textContent = 'Steps Taken';
+        container.appendChild(title);
+      }
+
+      container.querySelector('.step-empty')?.remove();
+      let list = container.querySelector('.step-list');
+      if (!list) {
+        list = document.createElement('ol');
+        list.className = 'step-list';
+        container.appendChild(list);
+      }
+
+      let preloadItem = list.querySelector(`.step-item[data-preload-phase="${phaseKey}"]`);
+      if (!preloadItem) {
+        preloadItem = stepElement(preloadEvent([call], phase), list.children.length + 1);
+        preloadItem.dataset.preloadPhase = phaseKey;
+        list.appendChild(preloadItem);
+        return;
+      }
+
+      const sublist = preloadItem.querySelector('.step-sublist');
+      sublist?.appendChild(preloadChildElement(call));
+      const count = sublist?.children.length || 1;
+      const countDetail = preloadItem.querySelector('[data-preload-count]');
+      if (countDetail) {
+        countDetail.textContent = preloadCountText(count, phase);
+      }
+      const summary = preloadItem.querySelector('.step-subdetails summary');
+      if (summary) {
+        summary.textContent = `Show ${count} lookup${count === 1 ? '' : 's'}`;
+      }
+    }
+
+    function buildTimelineEvents(result) {
+      const events = [];
+      let addedInitialTools = false;
+      let addedRepairTools = false;
+
+      for (const stage of result.stages || []) {
+        if (stage === 'Used FreeCAD context/validation tools') {
+          events.push(...traceTimelineEvents(result.tool_trace, 'Initial MCP'));
+          addedInitialTools = true;
+          continue;
+        }
+        if (stage === 'Used FreeCAD repair tools' || stage === 'Used FreeCAD syntax repair tools') {
+          events.push(...traceTimelineEvents(result.repair_tool_trace, 'Repair MCP'));
+          addedRepairTools = true;
+          continue;
+        }
+
+        events.push({
+          type: stage.toLowerCase().includes('failed') ? 'error' : 'stage',
+          title: stage,
+          kind: 'Step',
+        });
+      }
+
+      if (!addedInitialTools) {
+        events.push(...traceTimelineEvents(result.tool_trace, 'Initial MCP'));
+      }
+      if (!addedRepairTools) {
+        events.push(...traceTimelineEvents(result.repair_tool_trace, 'Repair MCP'));
+      }
+      return events;
+    }
+
+    function isToolSummaryStage(stage = '') {
+      return [
+        'Used FreeCAD context/validation tools',
+        'Used FreeCAD repair tools',
+        'Used FreeCAD syntax repair tools',
+      ].includes(stage);
+    }
+
+    function traceTimelineEvents(trace = [], phase) {
+      const preloadCalls = trace.filter(isPreloadToolCall);
+      const modelCalls = trace.filter((call) => !isPreloadToolCall(call));
+      const events = [];
+      if (preloadCalls.length) {
+        events.push(preloadEvent(preloadCalls, phase));
+      }
+      events.push(...toolTraceEvents(modelCalls, phase));
+      return events;
+    }
+
+    function preloadEvent(calls, phase) {
+      const repairContext = calls.some((call) => call.name === 'known_error_fix') || phase.toLowerCase().includes('repair');
+      return {
+        type: 'setup',
+        title: repairContext ? 'Preloaded FreeCAD repair context' : 'Preloaded FreeCAD context',
+        kind: 'CADBench setup',
+        details: [
+          repairContext
+            ? 'Baseline docs, examples, and repair hints loaded before asking the model to repair.'
+            : 'Baseline docs, API snippets, and examples loaded before asking the model to generate code.',
+          preloadCountText(calls.length, phase),
+        ],
+        children: calls,
+      };
+    }
+
+    function preloadCountText(count, phase) {
+      const timing = phase.toLowerCase().includes('repair') ? 'repair' : 'model generation';
+      return `${count} baseline lookup${count === 1 ? '' : 's'} loaded before ${timing}.`;
+    }
+
+    function toolTraceEvents(trace = [], phase) {
+      return trace.map((call) => timelineEventFromToolCall(call, phase));
+    }
+
+    function isPreloadToolCall(call) {
+      return call?.source === CADBENCH_PRELOAD_SOURCE;
+    }
+
+    function timelineEventFromToolCall(call, phase) {
+      const failed = call?.result?.success === false;
+      return {
+        type: failed ? 'error' : 'tool',
+        title: formatToolName(call?.name),
+        kind: phase,
+        details: toolCallDetails(call || {}),
+      };
+    }
+
+    function stepElement(event, number) {
+      const item = document.createElement('li');
+      item.className = `step-item is-${event.type}`;
+
+      const marker = document.createElement('span');
+      marker.className = 'step-marker';
+      marker.textContent = String(number);
+
+      const card = document.createElement('div');
+      card.className = 'step-card';
+      const titleRow = document.createElement('div');
+      titleRow.className = 'step-title-row';
+      const title = document.createElement('div');
+      title.className = 'step-title';
+      title.textContent = event.title;
+      const kind = document.createElement('div');
+      kind.className = 'step-kind';
+      kind.textContent = event.kind;
+      titleRow.append(title, kind);
+      card.appendChild(titleRow);
+
+      for (const detailText of event.details || []) {
+        const detail = document.createElement('div');
+        detail.className = 'step-detail';
+        detail.textContent = detailText;
+        if (detailText.includes('baseline lookup')) {
+          detail.dataset.preloadCount = 'true';
+        }
+        card.appendChild(detail);
+      }
+      if (event.children?.length) {
+        card.appendChild(preloadDetailsElement(event.children));
+      }
+
+      item.append(marker, card);
+      return item;
+    }
+
+    function preloadDetailsElement(calls) {
+      const details = document.createElement('details');
+      details.className = 'step-subdetails';
+      const summary = document.createElement('summary');
+      summary.textContent = `Show ${calls.length} lookup${calls.length === 1 ? '' : 's'}`;
+      const list = document.createElement('ul');
+      list.className = 'step-sublist';
+      for (const call of calls) {
+        list.appendChild(preloadChildElement(call));
+      }
+      details.append(summary, list);
+      return details;
+    }
+
+    function preloadChildElement(call) {
+      const item = document.createElement('li');
+      item.className = 'step-subitem';
+      const details = toolCallDetails(call);
+      item.textContent = `${formatToolName(call.name)}${details.length ? ` - ${details.join('; ')}` : ''}`;
+      return item;
+    }
+
+    function formatToolName(name = 'MCP tool') {
+      return String(name || 'MCP tool').replace(/_/g, ' ');
+    }
+
+    function toolCallDetails(call) {
+      const details = [];
+      const argumentSummary = summarizeToolArguments(call.arguments || {});
+      if (argumentSummary) {
+        details.push(argumentSummary);
+      }
+      const resultSummary = summarizeToolResult(call.result || {});
+      if (resultSummary) {
+        details.push(resultSummary);
+      }
+      return details;
+    }
+
+    function summarizeToolArguments(args) {
+      if (args.query) return `Arguments: query "${args.query}"`;
+      if (args.topic) return `Arguments: topic "${args.topic}"`;
+      if (args.symbol) return `Arguments: symbol "${args.symbol}"`;
+      if (args.handle) return `Arguments: handle "${args.handle}"`;
+      if (args.error_message) return 'Arguments: FreeCAD error text';
+      if (args.script) return `Arguments: candidate script (${args.script.length.toLocaleString()} characters)`;
+      const compact = compactJson(args, 120);
+      return compact === '{}' ? '' : `Arguments: ${compact}`;
+    }
+
+    function summarizeToolResult(result) {
+      if (result.success === false) {
+        return `Result: failed${result.error ? ` - ${result.error}` : ''}`;
+      }
+      if (result.fallback) return `Result: ${result.fallback}`;
+      if (result.handle) return `Result: validation handle ${result.handle}`;
+      if (Array.isArray(result.results)) return `Result: ${result.results.length} result${result.results.length === 1 ? '' : 's'}`;
+      if (typeof result.solid_count === 'number') {
+        return `Result: ${result.solid_count} solids, ${result.face_count ?? 0} faces, ${result.edge_count ?? 0} edges`;
+      }
+      if (typeof result.triangle_count === 'number') {
+        return `Result: ${result.triangle_count.toLocaleString()} triangles`;
+      }
+      if (typeof result.warning_count === 'number' || Array.isArray(result.warnings)) {
+        const count = result.warning_count ?? result.warnings.length;
+        return `Result: ${count} warning${count === 1 ? '' : 's'}`;
+      }
+      if (result.truncated && result.preview) return `Result: ${result.preview}`;
+      if (result.success === true) return 'Result: succeeded';
+      return `Result: ${compactJson(result, 140)}`;
+    }
+
+    function compactJson(value, maxLength) {
+      const rendered = JSON.stringify(value);
+      if (!rendered) return '';
+      return rendered.length > maxLength ? `${rendered.slice(0, maxLength)}...` : rendered;
+    }
 
     function collapsibleCodeBlock(label, code) {
       const details = document.createElement('details');

@@ -636,16 +636,19 @@ def build_context_bundle_with_trace(user_prompt: str, error_details: str | None 
     trace = [
         {
             "name": "search_docs",
+            "source": "cadbench_preload",
             "arguments": {"query": DEFAULT_CONTEXT_DOC_QUERY, "limit": 4},
             "result": docs_result,
         },
         {
             "name": "search_freecad_api_docs",
+            "source": "cadbench_preload",
             "arguments": {"query": DEFAULT_API_DOC_QUERY, "limit": 4},
             "result": api_docs_result,
         },
         {
             "name": "get_examples",
+            "source": "cadbench_preload",
             "arguments": {"topic": DEFAULT_EXAMPLE_TOPIC, "limit": 2},
             "result": examples_result,
         },
@@ -658,6 +661,7 @@ def build_context_bundle_with_trace(user_prompt: str, error_details: str | None 
         trace.append(
             {
                 "name": "known_error_fix",
+                "source": "cadbench_preload",
                 "arguments": {"error_message": error_details},
                 "result": fixes_result,
             }

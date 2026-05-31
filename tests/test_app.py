@@ -1,3 +1,4 @@
+import json
 import os
 
 import app as cadbench
@@ -431,6 +432,245 @@ def test_generate_text_with_openrouter_tools_reports_missing_tool_call_details(m
         raise AssertionError("Expected RuntimeError")
 
 
+def test_generate_text_with_openrouter_tools_sends_rendered_views_as_images(monkeypatch):
+    captured_payloads = []
+    image_data_url = "data:image/png;base64,AAAA"
+    responses = [
+        {
+            "choices": [
+                {
+                    "message": {
+                        "role": "assistant",
+                        "content": None,
+                        "tool_calls": [
+                            {
+                                "id": "call_render",
+                                "type": "function",
+                                "function": {
+                                    "name": "render_model_views",
+                                    "arguments": '{"handle": "last"}',
+                                },
+                            }
+                        ],
+                    },
+                    "finish_reason": "tool_calls",
+                }
+            ]
+        },
+        {"choices": [{"message": {"content": "print('done')"}}]},
+    ]
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        captured_payloads.append(json)
+        request = cadbench.httpx.Request("POST", url)
+        return cadbench.httpx.Response(200, request=request, json=responses.pop(0))
+
+    tools = [
+        {
+            "type": "function",
+            "function": {
+                "name": "render_model_views",
+                "description": "Render views",
+                "parameters": {"type": "object", "properties": {"handle": {"type": "string"}}},
+            },
+        }
+    ]
+
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
+    monkeypatch.setattr(cadbench.httpx, "post", fake_post)
+
+    result = cadbench.generate_text_with_openrouter_tools(
+        "prompt",
+        cadbench.DEFAULT_MODEL,
+        tools,
+        lambda _name, _args: {
+            "success": True,
+            "views": {"front": {"path": "front.png", "data_url": image_data_url}},
+        },
+        max_tool_rounds=1,
+    )
+
+    assert result.content == "print('done')"
+    followup_messages = captured_payloads[1]["messages"]
+    assert "[image data URL omitted" in followup_messages[2]["content"]
+    assert followup_messages[3]["role"] == "user"
+    assert followup_messages[3]["content"][1] == {"type": "image_url", "image_url": {"url": image_data_url}}
+
+
+def test_generate_text_with_openrouter_tools_reports_tool_calls_to_callback(monkeypatch):
+    responses = [
+        {
+            "choices": [
+                {
+                    "message": {
+                        "role": "assistant",
+                        "content": None,
+                        "tool_calls": [
+                            {
+                                "id": "call_1",
+                                "type": "function",
+                                "function": {
+                                    "name": "measure_geometry",
+                                    "arguments": '{"handle": "last"}',
+                                },
+                            }
+                        ],
+                    },
+                    "finish_reason": "tool_calls",
+                }
+            ]
+        },
+        {"choices": [{"message": {"content": "print('done')"}}]},
+    ]
+    callbacks = []
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        request = cadbench.httpx.Request("POST", url)
+        return cadbench.httpx.Response(200, request=request, json=responses.pop(0))
+
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
+    monkeypatch.setattr(cadbench.httpx, "post", fake_post)
+
+    cadbench.generate_text_with_openrouter_tools(
+        "prompt",
+        cadbench.DEFAULT_MODEL,
+        [{"type": "function", "function": {"name": "measure_geometry", "parameters": {"type": "object"}}}],
+        lambda _name, _args: {"success": True, "solid_count": 1},
+        max_tool_rounds=1,
+        on_tool_call=callbacks.append,
+    )
+
+    assert callbacks == [
+        {
+            "name": "measure_geometry",
+            "arguments": {"handle": "last"},
+            "result": {"success": True, "solid_count": 1},
+        }
+    ]
+
+
+def test_generate_text_with_openrouter_tools_can_remind_before_final_response(monkeypatch):
+    import copy
+
+    captured_payloads = []
+    responses = [
+        {"choices": [{"message": {"role": "assistant", "content": "draft script"}}]},
+        {
+            "choices": [
+                {
+                    "message": {
+                        "role": "assistant",
+                        "content": None,
+                        "tool_calls": [
+                            {
+                                "id": "call_measure",
+                                "type": "function",
+                                "function": {
+                                    "name": "measure_geometry",
+                                    "arguments": '{"handle": "last"}',
+                                },
+                            }
+                        ],
+                    },
+                    "finish_reason": "tool_calls",
+                }
+            ]
+        },
+        {"choices": [{"message": {"content": "final script"}}]},
+    ]
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        captured_payloads.append(copy.deepcopy(json))
+        request = cadbench.httpx.Request("POST", url)
+        return cadbench.httpx.Response(200, request=request, json=responses.pop(0))
+
+    def final_response_policy(_content, tool_trace, _tools):
+        if not tool_trace:
+            return "Call a validation tool before returning final code."
+        return None
+
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
+    monkeypatch.setattr(cadbench.httpx, "post", fake_post)
+
+    result = cadbench.generate_text_with_openrouter_tools(
+        "prompt",
+        cadbench.DEFAULT_MODEL,
+        [{"type": "function", "function": {"name": "measure_geometry", "parameters": {"type": "object"}}}],
+        lambda _name, _args: {"success": True, "solid_count": 1},
+        max_tool_rounds=3,
+        final_response_policy=final_response_policy,
+    )
+
+    assert result.content == "final script"
+    assert captured_payloads[1]["messages"][-2] == {"role": "assistant", "content": "draft script"}
+    assert captured_payloads[1]["messages"][-1] == {
+        "role": "user",
+        "content": "Call a validation tool before returning final code.",
+    }
+    assert result.tool_trace[0]["name"] == "measure_geometry"
+
+
+def test_cadbench_final_response_policy_requires_render_for_vision_models():
+    tools = [
+        {"type": "function", "function": {"name": "run_freecad_script"}},
+        {"type": "function", "function": {"name": "shape_health_check"}},
+        {"type": "function", "function": {"name": "mesh_quality_report"}},
+        {"type": "function", "function": {"name": "render_model_views"}},
+    ]
+    policy = cadbench.mcp_assistant.cadbench_final_response_policy(vision_capable=True)
+
+    assert "run_freecad_script" in policy("script", [], tools)
+
+    reminder = policy(
+        "script",
+        [
+            {"name": "run_freecad_script", "result": {"success": True, "handle": "run_1"}},
+            {"name": "shape_health_check", "result": {"success": True}},
+            {"name": "mesh_quality_report", "result": {"success": True}},
+        ],
+        tools,
+    )
+
+    assert "render_model_views" in reminder
+
+    assert (
+        policy(
+            "script",
+            [
+                {"name": "run_freecad_script", "result": {"success": True, "handle": "run_1"}},
+                {"name": "shape_health_check", "result": {"success": True}},
+                {"name": "mesh_quality_report", "result": {"success": True}},
+                {"name": "render_model_views", "result": {"success": True}},
+            ],
+            tools,
+        )
+        is None
+    )
+
+
+def test_cadbench_final_response_policy_does_not_require_render_for_text_models():
+    tools = [
+        {"type": "function", "function": {"name": "run_freecad_script"}},
+        {"type": "function", "function": {"name": "shape_health_check"}},
+        {"type": "function", "function": {"name": "mesh_quality_report"}},
+        {"type": "function", "function": {"name": "render_model_views"}},
+    ]
+    policy = cadbench.mcp_assistant.cadbench_final_response_policy(vision_capable=False)
+
+    assert (
+        policy(
+            "script",
+            [
+                {"name": "run_freecad_script", "result": {"success": True, "handle": "run_1"}},
+                {"name": "shape_health_check", "result": {"success": True}},
+                {"name": "mesh_quality_report", "result": {"success": True}},
+            ],
+            tools,
+        )
+        is None
+    )
+
+
 def test_format_openrouter_http_error_uses_provider_message():
     response = cadbench.httpx.Response(
         404,
@@ -506,6 +746,8 @@ def test_fetch_openrouter_free_models_uses_user_models_when_key_is_set(monkeypat
             "provider": "provider",
             "context_length": None,
             "free": True,
+            "vision_capable": False,
+            "output_modalities": ["text"],
             "pricing": {"prompt": "0", "completion": "0"},
         }
     ]
@@ -542,7 +784,62 @@ def test_fetch_openrouter_models_can_include_paid_models(monkeypatch):
     assert [model["id"] for model in models] == ["provider/free-model:free", "provider/paid-model"]
     assert models[0]["free"] is True
     assert models[1]["free"] is False
+    assert models[0]["vision_capable"] is False
+    assert models[1]["vision_capable"] is False
     assert models[1]["pricing"] == {"prompt": "0.000001", "completion": "0.000002"}
+
+
+def test_model_info_marks_openrouter_image_input_models_as_vision_capable():
+    model = cadbench.model_catalog.model_info_from_openrouter_model(
+        {
+            "id": "provider/vision-model",
+            "name": "Vision Model",
+            "pricing": {"prompt": "0.000001", "completion": "0.000002"},
+            "architecture": {"input_modalities": ["text", "image"], "output_modalities": ["text"]},
+        }
+    )
+
+    assert model["vision_capable"] is True
+    assert model["input_modalities"] == ["text", "image"]
+
+
+def test_available_models_cache_vision_capability(monkeypatch):
+    cadbench.model_catalog._MODEL_VISION_CAPABILITY_BY_ID.clear()
+    monkeypatch.setattr(
+        cadbench.model_catalog,
+        "fetch_openrouter_models",
+        lambda free_only=True: [
+            {"id": "provider/vision-model", "name": "Vision Model", "vision_capable": True},
+            {"id": "provider/text-model", "name": "Text Model", "vision_capable": False},
+        ],
+    )
+
+    cadbench.get_available_model_info(free_only=False)
+
+    assert cadbench.model_catalog.cached_model_is_vision_capable("provider/vision-model") is True
+    assert cadbench.model_catalog.cached_model_is_vision_capable("provider/text-model") is False
+    assert cadbench.model_catalog.cached_model_is_vision_capable("provider/unknown") is False
+
+
+def test_mcp_tool_filter_hides_render_views_for_non_vision_models():
+    tools = [
+        {"type": "function", "function": {"name": "render_model_views"}},
+        {"type": "function", "function": {"name": "shape_health_check"}},
+        {"type": "function", "function": {"name": "mesh_quality_report"}},
+    ]
+
+    non_vision_tools = cadbench.mcp_assistant.filter_openrouter_tools_for_model(tools, vision_capable=False)
+    vision_tools = cadbench.mcp_assistant.filter_openrouter_tools_for_model(tools, vision_capable=True)
+
+    assert [tool["function"]["name"] for tool in non_vision_tools] == [
+        "shape_health_check",
+        "mesh_quality_report",
+    ]
+    assert [tool["function"]["name"] for tool in vision_tools] == [
+        "render_model_views",
+        "shape_health_check",
+        "mesh_quality_report",
+    ]
 
 
 def test_is_free_openrouter_model_requires_free_text_output():
@@ -652,6 +949,55 @@ def test_generate_defaults_to_one_model_when_second_model_is_omitted(monkeypatch
     assert generated_models == [cadbench.DEFAULT_MODEL]
     assert [result["model"] for result in results] == [cadbench.DEFAULT_MODEL]
     assert "/output_model1.FCStd" in results[0]["fcstd_url"]
+
+
+def test_generate_stream_emits_stage_tool_call_and_result(monkeypatch, tmp_path):
+    def fake_build_model_result(
+        user_prompt,
+        model_name,
+        file_suffix,
+        artifact_dir,
+        vision_capable=False,
+        progress_callback=None,
+    ):
+        assert user_prompt == "make a cube"
+        assert model_name == cadbench.DEFAULT_MODEL
+        assert file_suffix == "_model1"
+        assert artifact_dir is not None
+        assert vision_capable is False
+        progress_callback({"type": "stage", "stage": "Generated initial script"})
+        progress_callback(
+            {
+                "type": "tool_call",
+                "phase": "Initial MCP",
+                "call": {
+                    "name": "search_docs",
+                    "arguments": {"query": "booleans"},
+                    "result": {"success": True},
+                },
+            }
+        )
+        return {
+            "model": model_name,
+            "mode": "mcp",
+            "stages": ["Generated initial script"],
+            "script": "print('ok')",
+            "fcstd_url": "/generated/test/output_model1.FCStd",
+        }
+
+    monkeypatch.setattr(cadbench, "build_model_result", fake_build_model_result)
+    monkeypatch.setattr(cadbench, "cleanup_old_artifacts", lambda: None)
+
+    client = cadbench.app.test_client()
+    response = client.post("/api/generate/stream", json={"prompt": "make a cube"}, buffered=True)
+
+    assert response.status_code == 200
+    events = [json.loads(line) for line in response.data.decode().splitlines() if line.strip()]
+    assert [event["type"] for event in events] == ["start", "stage", "tool_call", "result", "done"]
+    assert events[1] == {"index": 1, "type": "stage", "stage": "Generated initial script"}
+    assert events[2]["phase"] == "Initial MCP"
+    assert events[2]["call"]["name"] == "search_docs"
+    assert events[3]["result"]["script"] == "print('ok')"
 
 
 def test_build_model_result_reports_freecad_execution_details(monkeypatch, tmp_path):
@@ -903,9 +1249,18 @@ def test_mcp_assistance_sends_cadbench_system_prompt(monkeypatch, tmp_path):
     stub_mcp_tool_bridge(monkeypatch)
     captured = {}
 
-    def fake_generate(prompt, model_name, tools, execute_tool, max_tool_rounds=3, system_prompt=None):
+    def fake_generate(
+        prompt,
+        model_name,
+        tools,
+        execute_tool,
+        max_tool_rounds=3,
+        system_prompt=None,
+        final_response_policy=None,
+    ):
         captured["system_prompt"] = system_prompt
         captured["prompt"] = prompt
+        captured["final_response_policy"] = final_response_policy
         return cadbench.openrouter_client.ToolCompletionResult("print('ok')")
 
     monkeypatch.setattr(cadbench.openrouter_client, "generate_text_with_openrouter_tools", fake_generate)
@@ -1054,6 +1409,55 @@ def test_validation_tool_server_tracks_runs_and_geometry(monkeypatch, tmp_path):
     assert export["already_exported"] is True
 
 
+def test_validation_tool_server_renders_views_and_reports_mesh_quality(tmp_path):
+    stl_path = tmp_path / "tetra.stl"
+    _write_tetra_stl(stl_path)
+    server = freecad_validation.FreeCADValidationToolServer(tmp_path)
+    server.artifacts["run"] = freecad_validation.ValidationArtifact(stl_path=stl_path)
+    server.last_handle = "run"
+
+    render = server.render_model_views("last", image_size=128, include_data_urls=False)
+    mesh = server.mesh_quality_report("last")
+
+    assert render["success"] is True
+    assert set(render["views"]) == {"front", "top", "side", "isometric"}
+    assert render["triangle_count"] == 4
+    for view in render["views"].values():
+        assert view["width"] == 128
+        assert view["colored_pixel_count"] > 0
+        assert open(view["path"], "rb").read(8) == b"\x89PNG\r\n\x1a\n"
+    assert mesh["success"] is True
+    assert mesh["triangle_count"] == 4
+    assert mesh["watertight"] is True
+    assert mesh["component_count"] == 1
+
+
+def test_validation_tool_server_runs_shape_health_check(monkeypatch, tmp_path):
+    fcstd_path = tmp_path / "output_tool.FCStd"
+    fcstd_path.write_bytes(b"fcstd")
+    server = freecad_validation.FreeCADValidationToolServer(tmp_path)
+    server.artifacts["run"] = freecad_validation.ValidationArtifact(fcstd_path=fcstd_path)
+    server.last_handle = "run"
+
+    monkeypatch.setattr(
+        freecad_validation,
+        "shape_health_check_file",
+        lambda path: {
+            "success": True,
+            "valid": True,
+            "source": str(path),
+            "checks": [],
+            "warnings": [],
+        },
+    )
+
+    health = server.shape_health_check("last")
+
+    assert health["success"] is True
+    assert health["valid"] is True
+    assert health["source"] == str(fcstd_path)
+
+
 def test_cleanup_old_artifacts_removes_only_expired_directories(monkeypatch, tmp_path):
     old_dir = tmp_path / "old"
     fresh_dir = tmp_path / "fresh"
@@ -1070,3 +1474,27 @@ def test_cleanup_old_artifacts_removes_only_expired_directories(monkeypatch, tmp
 
     assert not old_dir.exists()
     assert fresh_dir.exists()
+
+
+def _write_tetra_stl(path):
+    vertices = {
+        "a": (0, 0, 0),
+        "b": (1, 0, 0),
+        "c": (0, 1, 0),
+        "d": (0, 0, 1),
+    }
+    faces = [
+        ("a", "c", "b"),
+        ("a", "b", "d"),
+        ("b", "c", "d"),
+        ("c", "a", "d"),
+    ]
+    lines = ["solid tetra"]
+    for face in faces:
+        lines.extend(["  facet normal 0 0 0", "    outer loop"])
+        for key in face:
+            x, y, z = vertices[key]
+            lines.append(f"      vertex {x} {y} {z}")
+        lines.extend(["    endloop", "  endfacet"])
+    lines.append("endsolid tetra")
+    path.write_text("\n".join(lines))

@@ -1,11 +1,14 @@
+import json
+from queue import Queue
 import shutil
 import time
 import uuid
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from dotenv import load_dotenv
-from flask import Flask, jsonify, request, send_from_directory
+from flask import Flask, Response, jsonify, request, send_from_directory, stream_with_context
 from flask_cors import CORS
 import httpx
 
@@ -23,6 +26,7 @@ load_dotenv()
 
 FreeCADExecutionResult = freecad_runner.FreeCADExecutionResult
 GENERATION_MODE_MCP_ASSISTED = "mcp"
+ProgressCallback = Callable[[dict], None]
 
 
 def make_docker_command(tmpdir_path: Path, script_name: str) -> list[str]:
@@ -56,13 +60,29 @@ def generate_text_with_openrouter_tools(*args, **kwargs) -> openrouter_client.To
 
 
 def generate_code_with_mcp_assistance(
-    user_prompt: str, model_name: str, artifact_dir: Path
+    user_prompt: str,
+    model_name: str,
+    artifact_dir: Path,
+    vision_capable: bool = False,
+    on_tool_call: mcp_assistant.ToolTraceCallback | None = None,
 ) -> mcp_assistant.MCPAssistedResult:
-    return mcp_assistant.generate_code_with_mcp_assistance(user_prompt, model_name, artifact_dir)
+    return mcp_assistant.generate_code_with_mcp_assistance(
+        user_prompt,
+        model_name,
+        artifact_dir,
+        vision_capable=vision_capable,
+        on_tool_call=on_tool_call,
+    )
 
 
 def repair_code_with_mcp_assistance(
-    user_prompt: str, model_name: str, script: str, error_details: str, artifact_dir: Path
+    user_prompt: str,
+    model_name: str,
+    script: str,
+    error_details: str,
+    artifact_dir: Path,
+    vision_capable: bool = False,
+    on_tool_call: mcp_assistant.ToolTraceCallback | None = None,
 ) -> mcp_assistant.MCPAssistedResult:
     return mcp_assistant.repair_code_with_mcp_assistance(
         user_prompt,
@@ -70,6 +90,8 @@ def repair_code_with_mcp_assistance(
         script,
         error_details,
         artifact_dir,
+        vision_capable=vision_capable,
+        on_tool_call=on_tool_call,
     )
 
 
@@ -118,26 +140,37 @@ def artifact_url(path: Path) -> str:
         return "/" + path.as_posix()
 
 
+def record_stage(model_result: dict, stage: str, progress_callback: ProgressCallback | None = None) -> None:
+    model_result["stages"].append(stage)
+    if progress_callback:
+        progress_callback({"type": "stage", "stage": stage})
+
+
 def build_model_result(
     user_prompt: str,
     model_name: str,
     file_suffix: str,
     artifact_dir: Path,
+    vision_capable: bool = False,
+    progress_callback: ProgressCallback | None = None,
 ) -> dict:
     model_result = {"model": model_name, "mode": GENERATION_MODE_MCP_ASSISTED, "stages": []}
 
     try:
-        model_result["stages"].append("Generated initial script")
-        generation_result = generate_code_with_mcp_assistance(
+        initial_tool_callback = _tool_progress_callback(progress_callback, "Initial MCP")
+        generation_result = request_mcp_generation(
             user_prompt,
             model_name,
             artifact_dir / f"mcp{file_suffix}_initial",
+            vision_capable,
+            initial_tool_callback,
         )
         script = generation_result.script
         tool_trace = generation_result.tool_trace
         if tool_trace:
             model_result["tool_trace"] = tool_trace
-            model_result["stages"].append("Used FreeCAD context/validation tools")
+            record_stage(model_result, "Used FreeCAD context/validation tools", progress_callback)
+        record_stage(model_result, "Generated initial script", progress_callback)
         script = prepare_or_repair_generated_script(
             model_result,
             user_prompt,
@@ -145,33 +178,38 @@ def build_model_result(
             script,
             file_suffix,
             artifact_dir,
+            vision_capable=vision_capable,
+            progress_callback=progress_callback,
         )
         if script is None:
             return model_result
         execution = try_execute_freecad_script(script, file_suffix, artifact_dir)
 
         if should_repair_execution(execution):
-            model_result["stages"].append("Initial FreeCAD run failed; requested repair")
+            record_stage(model_result, "Initial FreeCAD run failed; requested repair", progress_callback)
             try:
-                repair_result = repair_code_with_mcp_assistance(
+                repair_tool_callback = _tool_progress_callback(progress_callback, "Repair MCP")
+                repair_result = request_mcp_repair(
                     user_prompt,
                     model_name,
                     script,
                     execution.error_info or "",
                     artifact_dir / f"mcp{file_suffix}_repair",
+                    vision_capable,
+                    repair_tool_callback,
                 )
                 repaired_script = repair_result.script
                 repair_tool_trace = repair_result.tool_trace
                 if repair_tool_trace:
                     model_result["repair_tool_trace"] = repair_tool_trace
-                    model_result["stages"].append("Used FreeCAD repair tools")
+                    record_stage(model_result, "Used FreeCAD repair tools", progress_callback)
                 try:
                     repaired_script = prepare_freecad_script(repaired_script, file_suffix)
                 except ValueError as exc:
                     model_result["repair_attempted"] = True
                     model_result["repair_script"] = repaired_script
                     model_result["repair_error_details"] = f"Repaired script was not valid Python: {exc}"
-                    model_result["stages"].append("Repair failed Python syntax validation")
+                    record_stage(model_result, "Repair failed Python syntax validation", progress_callback)
                     model_result["script"] = script
                     add_execution_result(model_result, execution)
                     return model_result
@@ -181,16 +219,16 @@ def build_model_result(
                     model_result["original_script"] = script
                     script = repaired_script
                     execution = repaired_execution
-                    model_result["stages"].append("Repair succeeded")
+                    record_stage(model_result, "Repair succeeded", progress_callback)
                 else:
                     model_result["repair_attempted"] = True
                     model_result["repair_script"] = repaired_script
                     model_result["repair_error_details"] = repaired_execution.error_info
-                    model_result["stages"].append("Repair did not produce a model")
+                    record_stage(model_result, "Repair did not produce a model", progress_callback)
             except Exception as repair_exc:
                 model_result["repair_attempted"] = True
                 model_result["repair_error_details"] = f"Repair request failed: {repair_exc}"
-                model_result["stages"].append("Repair request failed")
+                record_stage(model_result, "Repair request failed", progress_callback)
 
         model_result["script"] = script
         add_execution_result(model_result, execution)
@@ -206,6 +244,58 @@ def build_model_result(
     return model_result
 
 
+def request_mcp_generation(
+    user_prompt: str,
+    model_name: str,
+    artifact_dir: Path,
+    vision_capable: bool,
+    on_tool_call: mcp_assistant.ToolTraceCallback | None,
+) -> mcp_assistant.MCPAssistedResult:
+    kwargs = {}
+    if vision_capable:
+        kwargs["vision_capable"] = True
+    if on_tool_call:
+        kwargs["on_tool_call"] = on_tool_call
+    return generate_code_with_mcp_assistance(user_prompt, model_name, artifact_dir, **kwargs)
+
+
+def request_mcp_repair(
+    user_prompt: str,
+    model_name: str,
+    script: str,
+    error_details: str,
+    artifact_dir: Path,
+    vision_capable: bool,
+    on_tool_call: mcp_assistant.ToolTraceCallback | None,
+) -> mcp_assistant.MCPAssistedResult:
+    kwargs = {}
+    if vision_capable:
+        kwargs["vision_capable"] = True
+    if on_tool_call:
+        kwargs["on_tool_call"] = on_tool_call
+    return repair_code_with_mcp_assistance(
+        user_prompt,
+        model_name,
+        script,
+        error_details,
+        artifact_dir,
+        **kwargs,
+    )
+
+
+def _tool_progress_callback(
+    progress_callback: ProgressCallback | None,
+    phase: str,
+) -> mcp_assistant.ToolTraceCallback | None:
+    if not progress_callback:
+        return None
+
+    def report_tool_call(trace_entry: dict) -> None:
+        progress_callback({"type": "tool_call", "phase": phase, "call": trace_entry})
+
+    return report_tool_call
+
+
 def prepare_or_repair_generated_script(
     model_result: dict,
     user_prompt: str,
@@ -213,25 +303,34 @@ def prepare_or_repair_generated_script(
     script: str,
     file_suffix: str,
     artifact_dir: Path,
+    vision_capable: bool = False,
+    progress_callback: ProgressCallback | None = None,
 ) -> str | None:
     try:
         return prepare_freecad_script(script, file_suffix)
     except ValueError as exc:
         syntax_error_details = f"Generated script was not valid Python: {exc}"
-        model_result["stages"].append("Generated script failed Python syntax validation; requested repair")
+        record_stage(
+            model_result,
+            "Generated script failed Python syntax validation; requested repair",
+            progress_callback,
+        )
         try:
-            repair_result = repair_code_with_mcp_assistance(
+            syntax_repair_tool_callback = _tool_progress_callback(progress_callback, "Syntax repair MCP")
+            repair_result = request_mcp_repair(
                 user_prompt,
                 model_name,
                 script,
                 syntax_error_details,
                 artifact_dir / f"mcp{file_suffix}_syntax_repair",
+                vision_capable,
+                syntax_repair_tool_callback,
             )
             repaired_script = repair_result.script
             repair_tool_trace = repair_result.tool_trace
             if repair_tool_trace:
                 model_result["repair_tool_trace"] = repair_tool_trace
-                model_result["stages"].append("Used FreeCAD syntax repair tools")
+                record_stage(model_result, "Used FreeCAD syntax repair tools", progress_callback)
             try:
                 prepared_repaired_script = prepare_freecad_script(repaired_script, file_suffix)
             except ValueError as repair_exc:
@@ -240,20 +339,20 @@ def prepare_or_repair_generated_script(
                 model_result["repair_script"] = repaired_script
                 model_result["error"] = syntax_error_details
                 model_result["repair_error_details"] = f"Syntax repair was not valid Python: {repair_exc}"
-                model_result["stages"].append("Syntax repair failed Python validation")
+                record_stage(model_result, "Syntax repair failed Python validation", progress_callback)
                 return None
 
             model_result["repaired"] = True
             model_result["repair_attempted"] = True
             model_result["original_script"] = script
-            model_result["stages"].append("Syntax repair succeeded")
+            record_stage(model_result, "Syntax repair succeeded", progress_callback)
             return prepared_repaired_script
         except Exception as repair_exc:
             model_result["repair_attempted"] = True
             model_result["script"] = script
             model_result["error"] = syntax_error_details
             model_result["repair_error_details"] = f"Syntax repair request failed: {repair_exc}"
-            model_result["stages"].append("Syntax repair request failed")
+            record_stage(model_result, "Syntax repair request failed", progress_callback)
             return None
 
 
@@ -286,6 +385,17 @@ def add_execution_result(model_result: dict, execution: FreeCADExecutionResult) 
         model_result["error_details"] = execution.error_info
 
 
+def generation_models_from_request_data(data: dict) -> list[tuple[str, bool]]:
+    requested_models = [data.get("model1", DEFAULT_MODEL)]
+    if data.get("model2"):
+        requested_models.append(data.get("model2", DEFAULT_MODEL))
+    models = []
+    for requested_model in requested_models:
+        model_name = requested_model if is_supported_model_id(requested_model) else DEFAULT_MODEL
+        models.append((model_name, model_catalog.cached_model_is_vision_capable(model_name)))
+    return models
+
+
 @app.route("/api/generate", methods=["POST"])
 def generate():
     data = request.get_json(force=True)
@@ -294,11 +404,7 @@ def generate():
         return jsonify({"error": "Prompt is required"}), 400
 
     cleanup_old_artifacts()
-
-    models = [data.get("model1", DEFAULT_MODEL)]
-    if data.get("model2"):
-        models.append(data.get("model2", DEFAULT_MODEL))
-    models = [model if is_supported_model_id(model) else DEFAULT_MODEL for model in models]
+    models = generation_models_from_request_data(data)
 
     request_artifact_dir = ARTIFACTS_DIR / uuid.uuid4().hex
     with ThreadPoolExecutor(max_workers=len(models)) as executor:
@@ -309,12 +415,87 @@ def generate():
                 model_name,
                 f"_model{index}",
                 request_artifact_dir,
+                vision_capable,
             )
-            for index, model_name in enumerate(models, start=1)
+            for index, (model_name, vision_capable) in enumerate(models, start=1)
         ]
         results = [future.result() for future in futures]
 
     return jsonify({"mode": GENERATION_MODE_MCP_ASSISTED, "results": results})
+
+
+@app.route("/api/generate/stream", methods=["POST"])
+def generate_stream():
+    data = request.get_json(force=True)
+    user_prompt = data.get("prompt", "").strip()
+    if not user_prompt:
+        return jsonify({"error": "Prompt is required"}), 400
+
+    cleanup_old_artifacts()
+    models = generation_models_from_request_data(data)
+    request_artifact_dir = ARTIFACTS_DIR / uuid.uuid4().hex
+
+    return Response(
+        stream_with_context(_stream_generation_events(user_prompt, models, request_artifact_dir)),
+        mimetype="application/x-ndjson",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+def _stream_generation_events(
+    user_prompt: str,
+    models: list[tuple[str, bool]],
+    request_artifact_dir: Path,
+):
+    events: Queue[dict] = Queue()
+    results: list[dict | None] = [None] * len(models)
+    executor = ThreadPoolExecutor(max_workers=len(models))
+
+    def emit(event: dict) -> None:
+        events.put(event)
+
+    def run_model(index: int, model_name: str, vision_capable: bool) -> None:
+        def progress(progress_event: dict) -> None:
+            emit({"index": index, **progress_event})
+
+        try:
+            result = build_model_result(
+                user_prompt,
+                model_name,
+                f"_model{index}",
+                request_artifact_dir,
+                vision_capable,
+                progress,
+            )
+        except Exception as exc:
+            result = {
+                "model": model_name,
+                "mode": GENERATION_MODE_MCP_ASSISTED,
+                "stages": [],
+                "script": f"# Error: {exc}",
+                "error": f"Failed to generate script: {exc}",
+            }
+        results[index - 1] = result
+        emit({"type": "result", "index": index, "result": result})
+
+    try:
+        for index, (model_name, vision_capable) in enumerate(models, start=1):
+            executor.submit(run_model, index, model_name, vision_capable)
+
+        yield _ndjson({"type": "start", "mode": GENERATION_MODE_MCP_ASSISTED, "model_count": len(models)})
+        remaining = len(models)
+        while remaining:
+            event = events.get()
+            if event.get("type") == "result":
+                remaining -= 1
+            yield _ndjson(event)
+        yield _ndjson({"type": "done", "mode": GENERATION_MODE_MCP_ASSISTED, "results": results})
+    finally:
+        executor.shutdown(wait=False, cancel_futures=True)
+
+
+def _ndjson(event: dict) -> str:
+    return json.dumps(event, ensure_ascii=True) + "\n"
 
 
 @app.route("/api/models", methods=["GET"])

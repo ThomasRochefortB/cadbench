@@ -19,6 +19,9 @@ EXPECTED_TOOLS = {
     "inspect_fcstd",
     "export_stl",
     "measure_geometry",
+    "render_model_views",
+    "shape_health_check",
+    "mesh_quality_report",
 }
 
 

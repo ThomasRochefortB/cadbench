@@ -15,6 +15,10 @@ import freecad_context
 import openrouter_client
 from prompts import CADBENCH_SYSTEM_PROMPT, MCP_ASSISTED_PROMPT_TEMPLATE, MCP_REPAIR_PROMPT_TEMPLATE
 
+VISION_ONLY_TOOL_NAMES = {"render_model_views"}
+MAX_MCP_TOOL_ROUNDS = 8
+ToolTraceCallback = Callable[[dict[str, Any]], None]
+
 
 @dataclass
 class MCPAssistedResult:
@@ -77,7 +81,14 @@ class MCPToolBridge:
 
     def _normalize_validation_arguments(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         normalized = dict(arguments)
-        if name in {"inspect_fcstd", "export_stl", "measure_geometry"}:
+        if name in {
+            "inspect_fcstd",
+            "export_stl",
+            "measure_geometry",
+            "render_model_views",
+            "shape_health_check",
+            "mesh_quality_report",
+        }:
             handle = normalized.get("handle", "last")
             if handle == "last" and self.last_validation_handle:
                 normalized["handle"] = self.last_validation_handle
@@ -104,13 +115,24 @@ def generate_code_with_mcp_assistance(
     user_prompt: str,
     model_name: str,
     artifact_dir: Path,
+    vision_capable: bool = False,
+    on_tool_call: ToolTraceCallback | None = None,
 ) -> MCPAssistedResult:
     context_bundle, context_trace = freecad_context.build_context_bundle_with_trace(user_prompt)
+    if on_tool_call:
+        for trace_entry in context_trace:
+            on_tool_call(trace_entry)
     prompt = MCP_ASSISTED_PROMPT_TEMPLATE.format(
         context_bundle=context_bundle,
         user_prompt=user_prompt,
     )
-    completion = _run_mcp_prompt(prompt, model_name, artifact_dir)
+    completion = _run_mcp_prompt(
+        prompt,
+        model_name,
+        artifact_dir,
+        vision_capable=vision_capable,
+        on_tool_call=on_tool_call,
+    )
     return MCPAssistedResult(
         script=completion.content,
         tool_trace=[*context_trace, *completion.tool_trace],
@@ -124,18 +146,29 @@ def repair_code_with_mcp_assistance(
     script: str,
     error_details: str,
     artifact_dir: Path,
+    vision_capable: bool = False,
+    on_tool_call: ToolTraceCallback | None = None,
 ) -> MCPAssistedResult:
     context_bundle, context_trace = freecad_context.build_context_bundle_with_trace(
         user_prompt,
         error_details=error_details,
     )
+    if on_tool_call:
+        for trace_entry in context_trace:
+            on_tool_call(trace_entry)
     prompt = MCP_REPAIR_PROMPT_TEMPLATE.format(
         context_bundle=context_bundle,
         user_prompt=user_prompt,
         script=script,
         error_details=error_details,
     )
-    completion = _run_mcp_prompt(prompt, model_name, artifact_dir)
+    completion = _run_mcp_prompt(
+        prompt,
+        model_name,
+        artifact_dir,
+        vision_capable=vision_capable,
+        on_tool_call=on_tool_call,
+    )
     return MCPAssistedResult(
         script=completion.content,
         tool_trace=[*context_trace, *completion.tool_trace],
@@ -147,17 +180,25 @@ def _run_mcp_prompt(
     prompt: str,
     model_name: str,
     artifact_dir: Path,
+    vision_capable: bool = False,
+    on_tool_call: ToolTraceCallback | None = None,
 ) -> openrouter_client.ToolCompletionResult:
     bridge = MCPToolBridge()
     try:
-        tools = bridge.list_openrouter_tools()
+        tools = filter_openrouter_tools_for_model(bridge.list_openrouter_tools(), vision_capable=vision_capable)
+        kwargs: dict[str, Any] = {
+            "max_tool_rounds": MAX_MCP_TOOL_ROUNDS,
+            "system_prompt": CADBENCH_SYSTEM_PROMPT,
+        }
+        if on_tool_call:
+            kwargs["on_tool_call"] = on_tool_call
+        kwargs["final_response_policy"] = cadbench_final_response_policy(vision_capable=vision_capable)
         return openrouter_client.generate_text_with_openrouter_tools(
             prompt,
             model_name,
             tools,
             bridge.call_tool,
-            max_tool_rounds=3,
-            system_prompt=CADBENCH_SYSTEM_PROMPT,
+            **kwargs,
         )
     except MCPToolBridgeError:
         raise
@@ -198,6 +239,78 @@ def _mcp_tool_to_openrouter_tool(tool: Any) -> dict[str, Any]:
             "parameters": parameters,
         },
     }
+
+
+def filter_openrouter_tools_for_model(
+    tools: list[dict[str, Any]],
+    vision_capable: bool = False,
+) -> list[dict[str, Any]]:
+    if vision_capable:
+        return tools
+    return [
+        tool
+        for tool in tools
+        if ((tool.get("function") or {}).get("name") not in VISION_ONLY_TOOL_NAMES)
+    ]
+
+
+def cadbench_final_response_policy(vision_capable: bool = False) -> openrouter_client.FinalResponsePolicy:
+    def policy(
+        _content: str,
+        tool_trace: list[dict[str, Any]],
+        tools: list[dict[str, Any]],
+    ) -> str | None:
+        available_names = {_tool_name(tool) for tool in tools}
+        if "run_freecad_script" not in available_names:
+            return None
+
+        latest_validation_index = _latest_validation_index(tool_trace)
+        if latest_validation_index is None:
+            return (
+                "Before returning final code, call `run_freecad_script` on the complete script you just drafted. "
+                "If it succeeds, continue with the available quality checks before returning only the final script."
+            )
+
+        latest_validation = tool_trace[latest_validation_index]
+        if latest_validation.get("result", {}).get("success") is False:
+            return None
+
+        called_after_validation = {
+            entry.get("name")
+            for entry in tool_trace[latest_validation_index + 1 :]
+        }
+        expected_quality_tools = [
+            "shape_health_check",
+            "mesh_quality_report",
+        ]
+        if vision_capable:
+            expected_quality_tools.append("render_model_views")
+        missing_quality_tools = [
+            name
+            for name in expected_quality_tools
+            if name in available_names and name not in called_after_validation
+        ]
+        if not missing_quality_tools:
+            return None
+
+        missing = ", ".join(f"`{name}`" for name in missing_quality_tools)
+        return (
+            f"The script validated, but the quality pass is not complete. Call {missing} using the latest "
+            "validation handle before returning only the final corrected script."
+        )
+
+    return policy
+
+
+def _tool_name(tool: dict[str, Any]) -> str | None:
+    return (tool.get("function") or {}).get("name")
+
+
+def _latest_validation_index(tool_trace: list[dict[str, Any]]) -> int | None:
+    for index in range(len(tool_trace) - 1, -1, -1):
+        if tool_trace[index].get("name") == "run_freecad_script":
+            return index
+    return None
 
 
 def _mcp_call_result_to_dict(result: Any) -> dict[str, Any]:

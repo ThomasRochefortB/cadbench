@@ -103,6 +103,38 @@ def create_cadbench_mcp_server(
     def measure_geometry(ctx: Context, handle: str = "last") -> dict[str, Any]:
         return validation_server_for_context(ctx).measure_geometry(handle)
 
+    @mcp.tool(
+        description=(
+            "Render front, top, side, and isometric PNG views from the validation STL. "
+            "Only expose this tool to vision-capable OpenRouter models."
+        )
+    )
+    def render_model_views(
+        ctx: Context,
+        handle: str = "last",
+        image_size: int = freecad_validation.DEFAULT_RENDER_IMAGE_SIZE,
+        include_data_urls: bool = True,
+    ) -> dict[str, Any]:
+        return validation_server_for_context(ctx).render_model_views(handle, image_size, include_data_urls)
+
+    @mcp.tool(
+        description=(
+            "Run deeper FreeCAD/OpenCascade shape validity checks including Shape.isValid(), Shape.check(), "
+            "non-solid shells, open wires, and tiny sliver faces."
+        )
+    )
+    def shape_health_check(ctx: Context, handle: str = "last") -> dict[str, Any]:
+        return validation_server_for_context(ctx).shape_health_check(handle)
+
+    @mcp.tool(
+        description=(
+            "Analyze the exported STL for watertightness, manifoldness, degenerate triangles, components, "
+            "normals, and bounding-box sanity."
+        )
+    )
+    def mesh_quality_report(ctx: Context, handle: str = "last") -> dict[str, Any]:
+        return validation_server_for_context(ctx).mesh_quality_report(handle)
+
     @mcp.resource(
         "cadbench://freecad/context",
         name="Curated FreeCAD Context",

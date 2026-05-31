@@ -11,6 +11,8 @@ from config import (
     OPENROUTER_USER_MODELS_URL,
 )
 
+_MODEL_VISION_CAPABILITY_BY_ID: dict[str, bool] = {}
+
 
 def is_free_openrouter_model(model: dict) -> bool:
     pricing = model.get("pricing") or {}
@@ -32,6 +34,12 @@ def is_usable_text_model(model: dict) -> bool:
     )
 
 
+def is_vision_capable_openrouter_model(model: dict) -> bool:
+    architecture = model.get("architecture") or {}
+    input_modalities = architecture.get("input_modalities") or []
+    return "image" in input_modalities
+
+
 def is_supported_model_id(model_name: str) -> bool:
     return "/" in model_name
 
@@ -49,6 +57,9 @@ def provider_from_model_id(model_id: str) -> str:
 def model_info_from_openrouter_model(model: dict) -> dict:
     model_id = model["id"]
     pricing = model.get("pricing") or {}
+    architecture = model.get("architecture") or {}
+    input_modalities = architecture.get("input_modalities") or []
+    output_modalities = architecture.get("output_modalities") or []
     is_free = (
         model_id.endswith(":free")
         and pricing.get("prompt") == "0"
@@ -60,7 +71,12 @@ def model_info_from_openrouter_model(model: dict) -> dict:
         "provider": provider_from_model_id(model_id),
         "context_length": model.get("context_length"),
         "free": is_free,
+        "vision_capable": "image" in input_modalities,
     }
+    if input_modalities:
+        info["input_modalities"] = input_modalities
+    if output_modalities:
+        info["output_modalities"] = output_modalities
     if pricing:
         info["pricing"] = {
             "prompt": pricing.get("prompt"),
@@ -110,9 +126,21 @@ def fallback_model_info() -> list[dict]:
             "provider": provider_from_model_id(model_id),
             "context_length": None,
             "free": True,
+            "vision_capable": False,
         }
         for model_id, display_name in MODEL_DISPLAY_NAMES.items()
     ]
+
+
+def cached_model_is_vision_capable(model_id: str) -> bool:
+    return _MODEL_VISION_CAPABILITY_BY_ID.get(model_id, False)
+
+
+def _remember_model_capabilities(models: list[dict]) -> None:
+    for model in models:
+        model_id = model.get("id")
+        if isinstance(model_id, str):
+            _MODEL_VISION_CAPABILITY_BY_ID[model_id] = bool(model.get("vision_capable"))
 
 
 def get_available_model_info(free_only: bool = True) -> list[dict]:
@@ -123,7 +151,9 @@ def get_available_model_info(free_only: bool = True) -> list[dict]:
         models_by_id = {}
 
     if not models_by_id:
-        return fallback_model_info()
+        models = fallback_model_info()
+        _remember_model_capabilities(models)
+        return models
 
     if free_only:
         for model in fallback_model_info():
@@ -131,4 +161,5 @@ def get_available_model_info(free_only: bool = True) -> list[dict]:
 
     models = list(models_by_id.values())
     models.sort(key=lambda model: (model["id"] != DEFAULT_MODEL, model["name"].lower()))
+    _remember_model_capabilities(models)
     return models

@@ -110,7 +110,10 @@ CADBench uses MCP-standard generation by default. The ASGI app mounts a reusable
 chat-completions tool-calling format:
 
 - FreeCAD context tools: `search_docs`, `search_freecad_api_docs`, `get_examples`, and `known_error_fix`
-- FreeCAD validation tools: `run_freecad_script`, `inspect_fcstd`, `export_stl`, and `measure_geometry`
+- FreeCAD validation tools: `run_freecad_script`, `inspect_fcstd`, `export_stl`, `measure_geometry`,
+  `shape_health_check`, and `mesh_quality_report`
+- Vision-only validation tool: `render_model_views`, which renders front/top/side/isometric PNGs from the
+  generated STL and is only exposed when the selected OpenRouter model metadata includes image input support
 - MCP resources: `cadbench://freecad/context`, `cadbench://freecad/api-docs`, and `cadbench://freecad/examples`
 - MCP prompts: `cadbench_generate_script` and `cadbench_repair_script`
 

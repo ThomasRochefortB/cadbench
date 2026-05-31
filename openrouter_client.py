@@ -16,6 +16,8 @@ from config import (
 
 
 ToolExecutor = Callable[[str, dict[str, Any]], dict[str, Any]]
+ToolTraceCallback = Callable[[dict[str, Any]], None]
+FinalResponsePolicy = Callable[[str, list[dict[str, Any]], list[dict[str, Any]]], str | None]
 
 
 @dataclass
@@ -40,6 +42,8 @@ def generate_text_with_openrouter_tools(
     execute_tool: ToolExecutor,
     max_tool_rounds: int = 3,
     system_prompt: str | None = None,
+    on_tool_call: ToolTraceCallback | None = None,
+    final_response_policy: FinalResponsePolicy | None = None,
 ) -> ToolCompletionResult:
     messages = _initial_messages(prompt, system_prompt)
     tool_trace: list[dict[str, Any]] = []
@@ -59,30 +63,26 @@ def generate_text_with_openrouter_tools(
             finish_reason = choice.get("finish_reason") or choice.get("native_finish_reason")
             if finish_reason == "tool_calls":
                 raise RuntimeError("OpenRouter returned tool_calls finish reason without tool call details")
-            return ToolCompletionResult(
-                extract_openrouter_output_text({"choices": [choice]}),
-                tool_trace,
-                messages,
-            )
+            content = extract_openrouter_output_text({"choices": [choice]})
+            reminder = final_response_policy(content, tool_trace, tools) if final_response_policy else None
+            if reminder and _round_index < max_tool_rounds - 1:
+                messages.append({"role": message.get("role") or "assistant", "content": content})
+                messages.append({"role": "user", "content": reminder})
+                continue
+            return ToolCompletionResult(content, tool_trace, messages)
 
         messages.append(_assistant_tool_message(message, tool_calls))
         for tool_call in tool_calls:
             tool_name, tool_args, tool_result = _execute_requested_tool(tool_call, execute_tool)
-            tool_trace.append(
-                {
-                    "name": tool_name,
-                    "arguments": _compact_tool_result(tool_args),
-                    "result": _compact_tool_result(tool_result),
-                }
-            )
-            messages.append(
-                {
-                    "role": "tool",
-                    "tool_call_id": tool_call.get("id"),
-                    "name": tool_name or "unknown_tool",
-                    "content": json.dumps(tool_result, ensure_ascii=True),
-                }
-            )
+            trace_entry = {
+                "name": tool_name,
+                "arguments": _compact_tool_result(tool_args),
+                "result": _compact_tool_result(tool_result),
+            }
+            tool_trace.append(trace_entry)
+            if on_tool_call:
+                on_tool_call(trace_entry)
+            messages.extend(_tool_result_messages(tool_call, tool_name, tool_result))
 
     response = create_openrouter_chat_completion(
         model_name,
@@ -246,8 +246,79 @@ def _execute_requested_tool(
         return tool_name, tool_args, {"success": False, "error": str(exc)}
 
 
+def _tool_result_messages(
+    tool_call: dict[str, Any],
+    tool_name: str | None,
+    tool_result: dict[str, Any],
+) -> list[dict[str, Any]]:
+    image_data_urls = _extract_tool_image_data_urls(tool_result)
+    messages = [
+        {
+            "role": "tool",
+            "tool_call_id": tool_call.get("id"),
+            "name": tool_name or "unknown_tool",
+            "content": json.dumps(_strip_tool_image_data_urls(tool_result), ensure_ascii=True),
+        }
+    ]
+    if image_data_urls:
+        content: list[dict[str, Any]] = [
+            {
+                "type": "text",
+                "text": (
+                    f"Rendered PNG views returned by {tool_name or 'the tool'}. "
+                    "Inspect these images for blank output, orientation, missing features, and proportions."
+                ),
+            }
+        ]
+        content.extend({"type": "image_url", "image_url": {"url": data_url}} for data_url in image_data_urls)
+        messages.append({"role": "user", "content": content})
+    return messages
+
+
+def _extract_tool_image_data_urls(value: Any) -> list[str]:
+    urls = []
+    if isinstance(value, dict):
+        for key, child in value.items():
+            if key == "data_url" and isinstance(child, str) and child.startswith("data:image/"):
+                urls.append(child)
+            else:
+                urls.extend(_extract_tool_image_data_urls(child))
+    elif isinstance(value, list):
+        for child in value:
+            urls.extend(_extract_tool_image_data_urls(child))
+    return urls
+
+
+def _strip_tool_image_data_urls(value: Any) -> Any:
+    if isinstance(value, dict):
+        stripped = {}
+        for key, child in value.items():
+            if key == "data_url" and isinstance(child, str) and child.startswith("data:image/"):
+                stripped[key] = f"[image data URL omitted: {len(child)} chars]"
+            else:
+                stripped[key] = _strip_tool_image_data_urls(child)
+        return stripped
+    if isinstance(value, list):
+        return [_strip_tool_image_data_urls(child) for child in value]
+    return value
+
+
 def _compact_tool_result(value: Any, max_chars: int = 900) -> Any:
     rendered = json.dumps(value, ensure_ascii=True, sort_keys=True)
     if len(rendered) <= max_chars:
         return value
-    return {"truncated": True, "preview": rendered[:max_chars]}
+    compacted = {"truncated": True, "preview": rendered[:max_chars]}
+    if isinstance(value, dict):
+        for key in (
+            "success",
+            "handle",
+            "valid",
+            "solid_count",
+            "face_count",
+            "edge_count",
+            "triangle_count",
+            "warning_count",
+        ):
+            if key in value:
+                compacted[key] = value[key]
+    return compacted

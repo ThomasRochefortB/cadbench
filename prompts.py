@@ -13,7 +13,11 @@ Use tools deliberately:
 - Do not use the user's raw object description as a documentation query. For example, search for
   "Part.makeCylinder App.Placement Shape.fuse" or "loft sweep face wire" instead of "a small cargo airplane".
 - Prefer exact symbols in API-doc searches when you know them.
-- Use validation tools for complete candidate scripts, then return the corrected script only.
+- Use validation tools for complete candidate scripts, especially `run_freecad_script`.
+- After a successful validation handle, use `shape_health_check` and `mesh_quality_report` when available.
+- If `render_model_views` is available, the selected model is vision-capable; call it after successful validation
+  and inspect the images for blank output, wrong orientation, missing features, and incoherent proportions before
+  returning the final corrected script.
 
 Generated scripts must be ASCII-only and headless-safe. Use simple comments and avoid Unicode drawing characters,
 typographic punctuation, and dimension symbols.
@@ -32,6 +36,10 @@ Hard requirements:
 - Keep the script concise. Prefer robust geometry over decorative detail.
 - Guard fragile optional operations with try/except.
 - Define dimensions as variables near the top.
+- Before returning final code, validate the complete script with `run_freecad_script` when tools are available.
+- If validation succeeds, call `shape_health_check` and `mesh_quality_report` when available.
+- If `render_model_views` is available, call it and use the rendered views to catch blank, tiny, misoriented,
+  or visually incoherent models.
 - Return only code, even if validation tools report success or warnings.
 
 Available context already retrieved for this request:
@@ -60,5 +68,7 @@ Repair goals:
 - Use only headless-safe FreeCAD APIs. Do not import FreeCADGui.
 - Make optional decorative operations non-fatal with try/except.
 - Ensure the script creates a document, adds visible solids with Part.show(...), calls doc.recompute(), and saves exactly to /data/output.FCStd.
+- Validate the repaired script with `run_freecad_script` when tools are available.
+- If validation succeeds and `render_model_views` is available, call it to visually check the repaired model before returning code.
 - Return only the complete corrected Python script. Do not include validation commentary or Markdown fences.
 """
