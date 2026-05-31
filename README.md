@@ -74,7 +74,7 @@ Source code for the CADBench LLM benchmark
 - **Head-to-Head LLM Comparison**: Compare how different LLMs generate CAD models for the same prompt
 - **Supported Models**:
   - OpenRouter text-generation models are loaded live from the OpenRouter Models API.
-  - The UI defaults to free endpoints, with a toggle to include paid endpoints.
+  - The UI can filter the model list to free endpoints only.
   - When `OPENROUTER_API_KEY` is set, the model list is filtered through OpenRouter's account-aware `/api/v1/models/user` endpoint so unavailable models are hidden.
   - Very small-context models are filtered out because they are poor fits for FreeCAD script generation.
   - Generation uses OpenRouter's OpenAI-compatible chat completions endpoint.
