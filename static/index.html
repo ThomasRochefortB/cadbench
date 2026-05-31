@@ -7,20 +7,26 @@
   <link rel="icon" href="logo.png" type="image/png">
   <style>
     :root {
-      --bg: #f5f7f8;
+      --bg: #f4f7f6;
+      --bg-grid: rgba(37, 68, 67, 0.06);
       --surface: #ffffff;
-      --surface-muted: #eef3f4;
-      --ink: #14181b;
-      --muted: #5d6972;
-      --line: #d7dee2;
-      --accent: #176b87;
-      --accent-strong: #0f5368;
-      --accent-soft: #e3f2f6;
+      --surface-raised: #fbfdfc;
+      --surface-muted: #edf5f2;
+      --ink: #111817;
+      --ink-soft: #273432;
+      --muted: #63716f;
+      --line: #d6e0de;
+      --line-strong: #b8c9c6;
+      --accent: #167f72;
+      --accent-strong: #0e5f56;
+      --accent-warm: #bf7a22;
+      --accent-soft: #e1f3ef;
       --danger: #b42318;
-      --danger-bg: #fff0ed;
-      --code-bg: #161b1d;
-      --code-ink: #edf7f4;
-      --shadow: 0 18px 45px rgba(20, 31, 38, 0.08);
+      --danger-bg: #fff2ef;
+      --code-bg: #101716;
+      --code-ink: #eaf5f1;
+      --shadow: 0 18px 46px rgba(18, 33, 35, 0.1), 0 1px 2px rgba(18, 33, 35, 0.06);
+      --shadow-soft: 0 12px 30px rgba(18, 33, 35, 0.08);
     }
 
     * {
@@ -32,36 +38,43 @@
       margin: 0 auto;
       color: var(--ink);
       background:
-        linear-gradient(180deg, rgba(227, 242, 246, 0.8) 0, rgba(245, 247, 248, 0) 280px),
-        var(--bg);
+        linear-gradient(90deg, var(--bg-grid) 1px, transparent 1px),
+        linear-gradient(180deg, var(--bg-grid) 1px, transparent 1px),
+        linear-gradient(180deg, #e9f1ef 0, #f6f8f7 430px, #f4f7f6 100%);
+      background-size: 48px 48px, 48px 48px, auto;
+      background-color: var(--bg);
       font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       font-size: 16px;
       line-height: 1.5;
     }
 
     .app-shell {
-      width: min(1440px, calc(100% - 48px));
+      width: min(1320px, calc(100% - 56px));
       margin: 0 auto;
-      padding: 34px 0 54px;
+      padding: 30px 0 58px;
     }
 
     .app-header {
-      display: grid;
-      grid-template-columns: auto 1fr;
-      align-items: center;
-      gap: 26px;
-      margin-bottom: 28px;
+      margin-bottom: 26px;
+      padding-bottom: 28px;
+      border-bottom: 1px solid rgba(184, 201, 198, 0.72);
     }
 
-    .brand-mark {
-      display: block;
-      width: 128px;
-      height: 128px;
-      object-fit: contain;
-      background: var(--surface);
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      box-shadow: var(--shadow);
+    .header-meta {
+      display: flex;
+      align-items: center;
+      margin-bottom: 18px;
+    }
+
+    .brand-name {
+      color: var(--accent-strong);
+      font-size: 0.92rem;
+      font-weight: 780;
+      letter-spacing: 0;
+    }
+
+    .header-main {
+      max-width: 860px;
     }
 
     h1,
@@ -72,30 +85,45 @@
     }
 
     h1 {
-      margin-bottom: 8px;
-      font-size: 2.35rem;
-      line-height: 1.08;
-      font-weight: 750;
+      max-width: 820px;
+      margin-bottom: 10px;
+      font-size: clamp(2rem, 3.5vw, 3.15rem);
+      line-height: 1.02;
+      font-weight: 780;
       letter-spacing: 0;
     }
 
     .header-copy {
-      max-width: 780px;
+      max-width: 820px;
       margin-bottom: 0;
       color: var(--muted);
-      font-size: 1.02rem;
+      font-size: 1.08rem;
     }
 
     .prompt-panel,
     .model-column {
-      background: var(--surface);
-      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.94);
+      border: 1px solid rgba(184, 201, 198, 0.86);
       border-radius: 8px;
       box-shadow: var(--shadow);
+      -webkit-backdrop-filter: blur(10px);
+      backdrop-filter: blur(10px);
     }
 
     .prompt-panel {
-      padding: 22px;
+      position: relative;
+      overflow: hidden;
+      padding: 24px;
+    }
+
+    .prompt-panel::before {
+      position: absolute;
+      top: 0;
+      right: 0;
+      left: 0;
+      height: 4px;
+      background: linear-gradient(90deg, var(--accent) 0%, var(--accent-warm) 100%);
+      content: "";
     }
 
     .field-header,
@@ -104,15 +132,16 @@
       align-items: baseline;
       justify-content: space-between;
       gap: 16px;
-      margin-bottom: 10px;
+      margin-bottom: 12px;
     }
 
     label,
     .field-label {
       display: block;
-      color: #263238;
-      font-size: 0.84rem;
-      font-weight: 700;
+      color: var(--ink-soft);
+      font-size: 0.8rem;
+      font-weight: 780;
+      letter-spacing: 0;
       text-transform: uppercase;
     }
 
@@ -123,44 +152,57 @@
 
     textarea {
       width: 100%;
-      min-height: 156px;
-      padding: 15px 16px;
+      min-height: 174px;
+      padding: 17px 18px;
       color: var(--ink);
-      background: #fbfcfc;
-      border: 1px solid #b9c4ca;
+      background: var(--surface-raised);
+      border: 1px solid var(--line-strong);
       border-radius: 8px;
-      font: 0.98rem/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      box-shadow: inset 0 1px 2px rgba(17, 24, 23, 0.04);
+      font: 0.98rem/1.6 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
       resize: vertical;
+      transition: background 140ms ease, border-color 140ms ease, box-shadow 140ms ease;
+    }
+
+    textarea::placeholder {
+      color: #788582;
     }
 
     textarea:focus,
     select:focus {
-      outline: 3px solid rgba(23, 107, 135, 0.18);
+      outline: 3px solid rgba(22, 127, 114, 0.18);
       border-color: var(--accent);
       background: var(--surface);
+      box-shadow: 0 0 0 1px rgba(22, 127, 114, 0.12);
     }
 
     button {
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      min-height: 44px;
-      padding: 0 18px;
-      margin-top: 18px;
-      border: 1px solid var(--accent-strong);
+      min-height: 46px;
+      padding: 0 20px;
+      margin-top: 20px;
+      border: 1px solid rgba(14, 95, 86, 0.92);
       border-radius: 8px;
       color: #ffffff;
-      background: var(--accent);
+      background: linear-gradient(180deg, #1b8f80 0%, var(--accent-strong) 100%);
+      box-shadow: 0 12px 22px rgba(22, 127, 114, 0.18);
       font: inherit;
-      font-weight: 700;
+      font-weight: 760;
       cursor: pointer;
       transition: background 120ms ease, transform 120ms ease, box-shadow 120ms ease;
     }
 
     button:hover {
-      background: var(--accent-strong);
-      box-shadow: 0 10px 22px rgba(23, 107, 135, 0.18);
+      background: linear-gradient(180deg, #167f72 0%, #0a5048 100%);
+      box-shadow: 0 16px 28px rgba(22, 127, 114, 0.22);
       transform: translateY(-1px);
+    }
+
+    button:focus-visible {
+      outline: 3px solid rgba(22, 127, 114, 0.22);
+      outline-offset: 2px;
     }
 
     button:disabled {
@@ -171,40 +213,59 @@
     }
 
     .secondary-button {
-      min-height: 32px;
+      min-height: 34px;
       margin-top: 0;
-      padding: 0 10px;
+      padding: 0 12px;
       color: var(--accent-strong);
-      background: var(--accent-soft);
-      border-color: #b7dce6;
+      background: #eef8f5;
+      border-color: #b8ddd5;
+      box-shadow: none;
       font-size: 0.84rem;
     }
 
     .secondary-button:hover {
       color: #ffffff;
       background: var(--accent);
+      box-shadow: 0 10px 18px rgba(22, 127, 114, 0.16);
     }
 
     pre {
-      min-height: 86px;
+      min-height: 108px;
       margin: 0;
-      background: var(--code-bg);
       color: var(--code-ink);
+      background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.035) 0%, rgba(255, 255, 255, 0) 100%),
+        var(--code-bg);
+      border: 1px solid rgba(16, 23, 22, 0.84);
       border-radius: 8px;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
       padding: 16px;
       overflow-x: auto;
-      max-height: 300px;
-      font: 0.88rem/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      max-height: 320px;
+      font: 0.88rem/1.58 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+
+    pre.is-placeholder {
+      min-height: 78px;
+      color: #6d7a77;
+      background: #f7faf9;
+      border: 1px dashed #c4d1ce;
+      box-shadow: none;
+    }
+
+    pre.is-busy {
+      color: #d8eee7;
     }
 
     .error-message {
       margin: 14px 0;
-      padding: 14px;
+      padding: 14px 16px;
       color: var(--danger);
       background: var(--danger-bg);
       border: 1px solid #ffd0c7;
       border-left: 4px solid var(--danger);
       border-radius: 8px;
+      font-weight: 680;
     }
 
     .error-details {
@@ -216,22 +277,278 @@
       border: 1px solid #ffd0c7;
       border-radius: 6px;
       margin-top: 10px;
+      font-weight: 500;
     }
 
     .modelViewer {
+      position: relative;
       width: 100%;
-      height: 400px;
-      border: 1px solid var(--line);
+      height: 420px;
+      border: 1px solid #d9e5ec;
       border-radius: 8px;
-      margin: 14px 0;
-      background: var(--surface-muted);
+      margin: 16px 0;
+      background:
+        linear-gradient(90deg, rgba(185, 206, 222, 0.22) 1px, transparent 1px),
+        linear-gradient(180deg, rgba(185, 206, 222, 0.22) 1px, transparent 1px),
+        linear-gradient(135deg, #fbfdff 0%, #f2f8fb 100%);
+      background-size: 38px 38px, 38px 38px, auto;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+      overflow: hidden;
+    }
+
+    .modelViewer canvas {
+      position: absolute;
+      inset: 0;
+      z-index: 1;
+      display: block;
+      width: 100%;
+      height: 100%;
+    }
+
+    .viewer-toolbar,
+    .viewer-actions,
+    .dimension-layer,
+    .axis-widget {
+      position: absolute;
+      z-index: 2;
+    }
+
+    .viewer-toolbar {
+      top: 16px;
+      left: 16px;
+    }
+
+    .viewer-actions {
+      top: 16px;
+      right: 16px;
+      display: flex;
+      overflow: hidden;
+      background: rgba(255, 255, 255, 0.86);
+      border: 1px solid #dfe9ef;
+      border-radius: 8px;
+      box-shadow: 0 10px 24px rgba(55, 76, 89, 0.1);
+      -webkit-backdrop-filter: blur(8px);
+      backdrop-filter: blur(8px);
+    }
+
+    .viewer-control,
+    .viewer-icon-button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 0;
+      margin: 0;
+      color: #526575;
+      background: rgba(255, 255, 255, 0.86);
+      border: 0;
+      box-shadow: none;
+    }
+
+    .viewer-control {
+      gap: 8px;
+      height: 40px;
+      padding: 0 12px;
+      border: 1px solid #dfe9ef;
+      border-radius: 8px;
+      font-size: 0.9rem;
+      font-weight: 720;
+      -webkit-backdrop-filter: blur(8px);
+      backdrop-filter: blur(8px);
+    }
+
+    .viewer-icon-button {
+      width: 42px;
+      height: 40px;
+      padding: 0;
+      border-left: 1px solid #dfe9ef;
+      border-radius: 0;
+    }
+
+    .viewer-icon-button:first-child {
+      border-left: 0;
+    }
+
+    .viewer-control:hover,
+    .viewer-icon-button:hover {
+      color: var(--accent-strong);
+      background: #ffffff;
+      box-shadow: none;
+      transform: none;
+    }
+
+    .viewer-control svg,
+    .viewer-icon-button svg {
+      width: 18px;
+      height: 18px;
+      flex: 0 0 auto;
+      stroke: currentColor;
+    }
+
+    .dimension-layer {
+      inset: 0;
+      pointer-events: none;
+    }
+
+    .dimension {
+      position: absolute;
+      color: #4f80c6;
+      font-size: 0.82rem;
+      font-weight: 740;
+      text-shadow: 0 1px 0 rgba(255, 255, 255, 0.88);
+    }
+
+    .dimension::before,
+    .dimension::after {
+      position: absolute;
+      background: #7facdf;
+      content: "";
+    }
+
+    .dimension::before {
+      height: 1px;
+      right: 0;
+      left: 0;
+      top: 50%;
+    }
+
+    .dimension::after {
+      right: 0;
+      top: calc(50% - 4px);
+      width: 8px;
+      height: 8px;
+      background: transparent;
+      border-top: 1px solid #7facdf;
+      border-right: 1px solid #7facdf;
+      transform: rotate(45deg);
+    }
+
+    .dimension span {
+      position: absolute;
+      left: 50%;
+      bottom: 8px;
+      transform: translateX(-50%);
+      white-space: nowrap;
+    }
+
+    .dimension-width {
+      right: 46%;
+      bottom: 42px;
+      left: 16%;
+      transform: rotate(-2deg);
+    }
+
+    .dimension-depth {
+      right: 14%;
+      bottom: 70px;
+      left: 61%;
+      transform: rotate(-18deg);
+    }
+
+    .dimension-height {
+      top: 29%;
+      right: 7%;
+      width: 1px;
+      height: 43%;
+    }
+
+    .dimension-height::before {
+      width: 1px;
+      height: 100%;
+      top: 0;
+      left: 0;
+    }
+
+    .dimension-height::after {
+      right: -4px;
+      top: 0;
+      transform: rotate(-45deg);
+    }
+
+    .dimension-height span {
+      top: 50%;
+      bottom: auto;
+      right: 12px;
+      left: auto;
+      transform: translateY(-50%);
+    }
+
+    .axis-widget {
+      left: 22px;
+      bottom: 22px;
+      width: 72px;
+      height: 72px;
+      pointer-events: none;
+    }
+
+    .axis-line {
+      position: absolute;
+      left: 22px;
+      bottom: 16px;
+      width: 34px;
+      height: 2px;
+      border-radius: 999px;
+      transform-origin: left center;
+    }
+
+    .axis-line::after {
+      position: absolute;
+      right: -1px;
+      top: -3px;
+      width: 8px;
+      height: 8px;
+      border-top: 2px solid currentColor;
+      border-right: 2px solid currentColor;
+      content: "";
+      transform: rotate(45deg);
+    }
+
+    .axis-x {
+      color: #e64c3c;
+      background: currentColor;
+      transform: rotate(18deg);
+    }
+
+    .axis-y {
+      color: #2aa85d;
+      background: currentColor;
+      transform: rotate(-34deg);
+    }
+
+    .axis-z {
+      color: #315cc7;
+      background: currentColor;
+      transform: rotate(-90deg);
+    }
+
+    .axis-label {
+      position: absolute;
+      font-size: 0.78rem;
+      font-weight: 800;
+    }
+
+    .axis-label-x {
+      right: 3px;
+      bottom: 12px;
+      color: #e64c3c;
+    }
+
+    .axis-label-y {
+      right: 17px;
+      bottom: 43px;
+      color: #2aa85d;
+    }
+
+    .axis-label-z {
+      left: 16px;
+      top: 1px;
+      color: #315cc7;
     }
 
     .comparison-container {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 16px;
-      margin-top: 18px;
+      gap: 18px;
+      margin-top: 20px;
     }
 
     .comparison-container.single-model {
@@ -240,32 +557,79 @@
 
     .model-column {
       min-width: 0;
-      padding: 20px;
+      padding: 22px;
     }
 
     .selector-tools {
       display: flex;
+      flex-wrap: wrap;
       align-items: center;
-      gap: 18px;
-      margin-top: 16px;
+      gap: 10px;
+      margin-top: 18px;
     }
 
     .toggle-control {
       display: inline-flex;
       align-items: center;
       gap: 10px;
+      min-height: 40px;
+      padding: 6px 10px 6px 7px;
       color: var(--ink);
+      background: transparent;
+      border: 1px solid transparent;
+      border-radius: 8px;
       font-size: 0.95rem;
-      font-weight: 700;
+      font-weight: 720;
       text-transform: none;
       cursor: pointer;
+      transition: background 120ms ease, border-color 120ms ease;
+    }
+
+    .toggle-control:hover {
+      background: rgba(225, 243, 239, 0.68);
+      border-color: rgba(184, 221, 213, 0.9);
     }
 
     .toggle-control input {
-      width: 18px;
-      height: 18px;
+      position: relative;
+      flex: 0 0 auto;
+      width: 38px;
+      height: 22px;
       margin: 0;
-      accent-color: var(--accent);
+      -webkit-appearance: none;
+      appearance: none;
+      background: #d4dfdc;
+      border: 1px solid #b3c3bf;
+      border-radius: 999px;
+      cursor: pointer;
+      transition: background 140ms ease, border-color 140ms ease;
+    }
+
+    .toggle-control input::after {
+      position: absolute;
+      top: 2px;
+      left: 2px;
+      width: 16px;
+      height: 16px;
+      background: #ffffff;
+      border-radius: 999px;
+      box-shadow: 0 1px 4px rgba(17, 24, 23, 0.24);
+      content: "";
+      transition: transform 140ms ease;
+    }
+
+    .toggle-control input:checked {
+      background: var(--accent);
+      border-color: var(--accent-strong);
+    }
+
+    .toggle-control input:checked::after {
+      transform: translateX(16px);
+    }
+
+    .toggle-control input:focus-visible {
+      outline: 3px solid rgba(22, 127, 114, 0.2);
+      outline-offset: 2px;
     }
 
     .selector-row .model-column {
@@ -273,6 +637,7 @@
       background: transparent;
       border: 0;
       box-shadow: none;
+      backdrop-filter: none;
     }
 
     .selector-row label {
@@ -281,21 +646,28 @@
 
     .model-select {
       width: 100%;
-      min-height: 44px;
-      padding: 0 12px;
+      min-height: 48px;
+      padding: 0 42px 0 14px;
       color: var(--ink);
-      background: #fbfcfc;
-      border: 1px solid #b9c4ca;
+      background-color: var(--surface-raised);
+      background-image: url("data:image/svg+xml,%3Csvg width='18' height='18' viewBox='0 0 24 24' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M6 9L12 15L18 9' stroke='%2363716f' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+      background-position: right 13px center;
+      background-repeat: no-repeat;
+      background-size: 18px;
+      border: 1px solid var(--line-strong);
       border-radius: 8px;
+      box-shadow: inset 0 1px 2px rgba(17, 24, 23, 0.04);
       font: inherit;
+      -webkit-appearance: none;
+      appearance: none;
     }
 
     .model-meta,
     .result-meta {
       min-height: 20px;
-      margin-top: 7px;
+      margin-top: 8px;
       color: var(--muted);
-      font-size: 0.82rem;
+      font-size: 0.84rem;
     }
 
     .viewerContainer {
@@ -303,14 +675,30 @@
     }
 
     .loading {
+      position: relative;
       display: none;
       margin-top: 18px;
-      padding: 14px 16px;
+      padding: 14px 18px 14px 42px;
       color: var(--accent-strong);
-      background: var(--accent-soft);
-      border: 1px solid #b7dce6;
+      background: #eef8f5;
+      border: 1px solid #b8ddd5;
       border-radius: 8px;
-      font-weight: 700;
+      box-shadow: 0 10px 24px rgba(22, 127, 114, 0.1);
+      font-weight: 760;
+      overflow: hidden;
+    }
+
+    .loading::before {
+      position: absolute;
+      top: 50%;
+      left: 18px;
+      width: 10px;
+      height: 10px;
+      background: var(--accent);
+      border-radius: 50%;
+      box-shadow: 0 0 0 6px rgba(22, 127, 114, 0.12);
+      content: "";
+      transform: translateY(-50%);
     }
 
     .results-grid {
@@ -319,7 +707,7 @@
 
     .result-header {
       margin-bottom: 16px;
-      padding-bottom: 12px;
+      padding-bottom: 14px;
       border-bottom: 1px solid var(--line);
     }
 
@@ -333,16 +721,18 @@
 
     h2 {
       margin-bottom: 0;
-      font-size: 1.2rem;
+      color: var(--ink);
+      font-size: 1.22rem;
       line-height: 1.2;
-      font-weight: 760;
+      font-weight: 780;
     }
 
     h3 {
       margin-bottom: 10px;
-      color: #263238;
-      font-size: 0.84rem;
-      font-weight: 700;
+      color: var(--ink-soft);
+      font-size: 0.8rem;
+      font-weight: 780;
+      letter-spacing: 0;
       text-transform: uppercase;
     }
 
@@ -350,35 +740,49 @@
       min-height: 28px;
       margin: 14px 0 0;
       color: var(--muted);
-      font-weight: 600;
+      font-weight: 660;
     }
 
     .download-row a {
       display: inline-flex;
       align-items: center;
-      min-height: 32px;
-      padding: 0 10px;
+      min-height: 34px;
+      padding: 0 12px;
       color: var(--accent-strong);
-      background: var(--accent-soft);
-      border: 1px solid #b7dce6;
+      background: #eef8f5;
+      border: 1px solid #b8ddd5;
       border-radius: 8px;
       text-decoration: none;
-      font-weight: 700;
+      font-weight: 740;
+    }
+
+    .download-row a:hover {
+      color: #ffffff;
+      background: var(--accent);
+      border-color: var(--accent);
     }
 
     details {
+      margin-top: 12px;
+      padding: 12px 14px;
+      background: #f7faf9;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+    }
+
+    details pre {
       margin-top: 12px;
     }
 
     summary {
       cursor: pointer;
       color: var(--accent-strong);
-      font-weight: 700;
+      font-weight: 740;
     }
 
     @media (max-width: 820px) {
       .app-shell {
-        width: min(100% - 28px, 1440px);
+        width: min(1320px, calc(100% - 28px));
         padding-top: 20px;
       }
 
@@ -388,16 +792,20 @@
       }
 
       .app-header {
-        gap: 16px;
+        padding-bottom: 20px;
       }
 
-      .brand-mark {
-        width: 96px;
-        height: 96px;
+      .header-meta {
+        align-items: flex-start;
+        margin-bottom: 16px;
       }
 
       h1 {
-        font-size: 1.85rem;
+        font-size: 2rem;
+      }
+
+      .header-copy {
+        font-size: 1rem;
       }
 
       .prompt-panel,
@@ -409,6 +817,47 @@
         padding: 0;
       }
 
+      .modelViewer {
+        height: 320px;
+      }
+
+      .viewer-toolbar,
+      .viewer-actions {
+        top: 10px;
+      }
+
+      .viewer-toolbar {
+        left: 10px;
+      }
+
+      .viewer-actions {
+        right: 10px;
+      }
+
+      .viewer-control {
+        height: 36px;
+        padding: 0 10px;
+      }
+
+      .viewer-icon-button {
+        width: 38px;
+        height: 36px;
+      }
+
+      .dimension {
+        font-size: 0.72rem;
+      }
+
+      .dimension-depth {
+        display: none;
+      }
+
+      .axis-widget {
+        left: 16px;
+        bottom: 16px;
+        transform: scale(0.86);
+        transform-origin: left bottom;
+      }
     }
   </style>
   <script type="importmap">
@@ -423,8 +872,10 @@
 <body>
   <main class="app-shell">
     <header class="app-header">
-      <img class="brand-mark" src="logo.png" alt="CADBench Logo">
-      <div>
+      <div class="header-meta">
+        <span class="brand-name">CADBench</span>
+      </div>
+      <div class="header-main">
         <h1>Generate FreeCAD Models</h1>
         <p class="header-copy">Enter a FreeCAD modeling prompt, choose an OpenRouter model, and optionally compare it with a second model.</p>
       </div>
@@ -442,7 +893,7 @@
           <span>Compare two models</span>
         </label>
         <label class="toggle-control" for="freeOnlyToggle">
-          <input id="freeOnlyToggle" type="checkbox" checked>
+          <input id="freeOnlyToggle" type="checkbox">
           <span>Free endpoints only</span>
         </label>
       </div>
@@ -489,7 +940,7 @@
           <h3>FreeCAD Script</h3>
           <button type="button" class="secondary-button copy-script" data-target="scriptOutput1">Copy</button>
         </div>
-        <pre id="scriptOutput1">(script will appear here)</pre>
+        <pre id="scriptOutput1" class="is-placeholder">(script will appear here)</pre>
         <div id="extraScriptContainer1"></div>
         <p id="downloadLinkContainer1" class="download-row">(No file generated)</p>
       </div>
@@ -511,7 +962,7 @@
           <h3>FreeCAD Script</h3>
           <button type="button" class="secondary-button copy-script" data-target="scriptOutput2">Copy</button>
         </div>
-        <pre id="scriptOutput2">(script will appear here)</pre>
+        <pre id="scriptOutput2" class="is-placeholder">(script will appear here)</pre>
         <div id="extraScriptContainer2"></div>
         <p id="downloadLinkContainer2" class="download-row">(No file generated)</p>
       </div>
@@ -575,6 +1026,13 @@
         loadingTimer = null;
       }
       loading.style.display = 'none';
+    }
+
+    function setScriptOutput(id, text, state = '') {
+      const output = document.getElementById(id);
+      output.textContent = text;
+      output.classList.toggle('is-placeholder', state === 'placeholder');
+      output.classList.toggle('is-busy', state === 'busy');
     }
 
     function comparisonEnabled() {
@@ -646,58 +1104,137 @@
     let cameras = [null, null];
     let renderers = [null, null];
     let controls = [null, null];
+    let viewerDistances = [50, 50];
     
     function initViewer(index) {
       const containerId = `modelViewer${index+1}`;
       const container = document.getElementById(containerId);
+      setupViewerChrome(container, index);
       
-      // Create scene
       scenes[index] = new THREE.Scene();
-      scenes[index].background = new THREE.Color(0xf0f0f0);
       
-      // Setup camera
-      cameras[index] = new THREE.PerspectiveCamera(75, container.clientWidth / container.clientHeight, 0.1, 1000);
-      cameras[index].position.z = 50;
+      cameras[index] = new THREE.PerspectiveCamera(42, container.clientWidth / container.clientHeight, 0.1, 4000);
+      cameras[index].up.set(0, 0, 1);
+      cameras[index].position.set(50, -50, 38);
       
-      // Setup renderer
-      renderers[index] = new THREE.WebGLRenderer({ antialias: true });
-      renderers[index].setSize(container.clientWidth, container.clientHeight);
+      renderers[index] = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+      renderers[index].setClearColor(0xffffff, 0);
+      renderers[index].setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+      renderers[index].outputColorSpace = THREE.SRGBColorSpace;
+      renderers[index].shadowMap.enabled = true;
+      renderers[index].shadowMap.type = THREE.PCFSoftShadowMap;
+      resizeViewer(index);
       container.appendChild(renderers[index].domElement);
       
-      // Add lights with even illumination from all sides
-      const ambientLight = new THREE.AmbientLight(0xffffff, 1.5);
-      scenes[index].add(ambientLight);
+      addViewerLights(index);
       
-      // Add directional lights from multiple angles for more even lighting
-      const directions = [
-        [1, 1, 1],
-        [-1, 1, 1],
-        [1, -1, 1],
-        [-1, -1, 1]
-      ];
-      
-      directions.forEach(dir => {
-        const directionalLight = new THREE.DirectionalLight(0xffffff, 0.5);
-        directionalLight.position.set(...dir);
-        scenes[index].add(directionalLight);
-      });
-      
-      // Add orbit controls
       controls[index] = new OrbitControls(cameras[index], renderers[index].domElement);
       controls[index].enableDamping = true;
-      controls[index].dampingFactor = 0.25;
+      controls[index].dampingFactor = 0.08;
+      controls[index].screenSpacePanning = false;
+      controls[index].target.set(0, 0, 0);
+      controls[index].update();
       
-      // Auto-resize handler
       window.addEventListener('resize', () => {
-        const width = container.clientWidth;
-        const height = container.clientHeight;
-        renderers[index].setSize(width, height);
-        cameras[index].aspect = width / height;
-        cameras[index].updateProjectionMatrix();
+        resizeViewer(index);
       });
       
-      // Start animation loop
       animate(index);
+    }
+
+    function setupViewerChrome(container, index) {
+      if (container.dataset.viewerChromeReady) return;
+      container.dataset.viewerChromeReady = 'true';
+
+      const toolbar = document.createElement('div');
+      toolbar.className = 'viewer-toolbar';
+      toolbar.innerHTML = `
+        <button type="button" class="viewer-control" data-viewer-action="isometric" title="Reset to isometric view" aria-label="Reset to isometric view">
+          ${viewerIcon('cube')}
+          <span>Isometric</span>
+          ${viewerIcon('chevron')}
+        </button>
+      `;
+
+      const actions = document.createElement('div');
+      actions.className = 'viewer-actions';
+      actions.innerHTML = `
+        <button type="button" class="viewer-icon-button" data-viewer-action="isometric" title="Reset view" aria-label="Reset view">
+          ${viewerIcon('cube')}
+        </button>
+        <button type="button" class="viewer-icon-button" data-viewer-action="fullscreen" title="Fullscreen preview" aria-label="Fullscreen preview">
+          ${viewerIcon('expand')}
+        </button>
+      `;
+
+      const dimensionLayer = document.createElement('div');
+      dimensionLayer.className = 'dimension-layer';
+
+      const axisWidget = document.createElement('div');
+      axisWidget.className = 'axis-widget';
+      axisWidget.setAttribute('aria-hidden', 'true');
+      axisWidget.innerHTML = `
+        <span class="axis-line axis-x"></span>
+        <span class="axis-line axis-y"></span>
+        <span class="axis-line axis-z"></span>
+        <span class="axis-label axis-label-x">X</span>
+        <span class="axis-label axis-label-y">Y</span>
+        <span class="axis-label axis-label-z">Z</span>
+      `;
+
+      container.append(toolbar, actions, dimensionLayer, axisWidget);
+      container.querySelectorAll('[data-viewer-action="isometric"]').forEach((button) => {
+        button.addEventListener('click', () => setIsometricView(index));
+      });
+      container.querySelector('[data-viewer-action="fullscreen"]').addEventListener('click', async () => {
+        try {
+          if (document.fullscreenElement === container) {
+            await document.exitFullscreen();
+          } else if (container.requestFullscreen) {
+            await container.requestFullscreen();
+          }
+        } catch (error) {
+          console.warn('Unable to toggle fullscreen preview:', error);
+        }
+      });
+    }
+
+    function viewerIcon(name) {
+      const icons = {
+        cube: '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3 20 7.5V16.5L12 21 4 16.5V7.5L12 3Z" stroke-width="2" stroke-linejoin="round"/><path d="M12 12 20 7.5M12 12V21M12 12 4 7.5" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+        chevron: '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M7 10L12 15L17 10" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+        expand: '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M8 4H4V8M16 4H20V8M20 16V20H16M4 16V20H8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+      };
+      return icons[name];
+    }
+
+    function addViewerLights(index) {
+      const ambientLight = new THREE.HemisphereLight(0xffffff, 0xcfd9df, 1.9);
+      ambientLight.userData.keepViewerObject = true;
+      scenes[index].add(ambientLight);
+
+      const keyLight = new THREE.DirectionalLight(0xffffff, 2.4);
+      keyLight.position.set(80, -100, 140);
+      keyLight.castShadow = true;
+      keyLight.shadow.mapSize.width = 2048;
+      keyLight.shadow.mapSize.height = 2048;
+      keyLight.userData.keepViewerObject = true;
+      scenes[index].add(keyLight);
+
+      const fillLight = new THREE.DirectionalLight(0xcfe8ff, 1.1);
+      fillLight.position.set(-110, 80, 90);
+      fillLight.userData.keepViewerObject = true;
+      scenes[index].add(fillLight);
+    }
+
+    function resizeViewer(index) {
+      const container = document.getElementById(`modelViewer${index+1}`);
+      if (!container || !renderers[index] || !cameras[index]) return;
+      const width = Math.max(container.clientWidth, 1);
+      const height = Math.max(container.clientHeight, 1);
+      renderers[index].setSize(width, height, false);
+      cameras[index].aspect = width / height;
+      cameras[index].updateProjectionMatrix();
     }
     
     function animate(index) {
@@ -707,6 +1244,76 @@
         renderers[index].render(scenes[index], cameras[index]);
       }
     }
+
+    function clearViewerScene(index) {
+      scenes[index].children = scenes[index].children.filter((child) => child.userData.keepViewerObject);
+      updateDimensionOverlay(index, null);
+    }
+
+    function addCadReferencePlane(index, modelSize) {
+      const maxFootprint = Math.max(modelSize.x, modelSize.y, modelSize.z, 1);
+      const gridSize = Math.max(40, maxFootprint * 2.8);
+      const gridDivisions = Math.min(48, Math.max(12, Math.round(gridSize / Math.max(maxFootprint / 8, 4))));
+      const bottomZ = -modelSize.z / 2;
+
+      const ground = new THREE.Mesh(
+        new THREE.PlaneGeometry(gridSize, gridSize),
+        new THREE.ShadowMaterial({ color: 0x6b7b86, opacity: 0.12 })
+      );
+      ground.position.z = bottomZ - maxFootprint * 0.015;
+      ground.receiveShadow = true;
+      scenes[index].add(ground);
+
+      const grid = new THREE.GridHelper(gridSize, gridDivisions, 0xaec4d6, 0xdbe6ee);
+      grid.rotation.x = Math.PI / 2;
+      grid.position.z = bottomZ - maxFootprint * 0.012;
+      grid.material.transparent = true;
+      grid.material.opacity = 0.48;
+      grid.material.depthWrite = false;
+      scenes[index].add(grid);
+    }
+
+    function fitCameraToModel(index, modelSize) {
+      const maxDimension = Math.max(modelSize.x, modelSize.y, modelSize.z, 1);
+      viewerDistances[index] = Math.max(maxDimension * 2.4, modelSize.length() * 1.2, 24);
+      cameras[index].near = Math.max(viewerDistances[index] / 200, 0.1);
+      cameras[index].far = viewerDistances[index] * 20;
+      cameras[index].updateProjectionMatrix();
+      controls[index].minDistance = viewerDistances[index] * 0.28;
+      controls[index].maxDistance = viewerDistances[index] * 4;
+      setIsometricView(index);
+    }
+
+    function setIsometricView(index) {
+      if (!cameras[index] || !controls[index]) return;
+      const distance = viewerDistances[index] || 50;
+      cameras[index].position.set(distance, -distance, distance * 0.78);
+      controls[index].target.set(0, 0, 0);
+      cameras[index].lookAt(0, 0, 0);
+      controls[index].update();
+    }
+
+    function updateDimensionOverlay(index, modelSize) {
+      const layer = document.querySelector(`#modelViewer${index+1} .dimension-layer`);
+      if (!layer) return;
+      layer.replaceChildren();
+      if (!modelSize) return;
+
+      layer.append(
+        dimensionElement('dimension-width', modelSize.x),
+        dimensionElement('dimension-depth', modelSize.y),
+        dimensionElement('dimension-height', modelSize.z)
+      );
+    }
+
+    function dimensionElement(className, value) {
+      const dimension = document.createElement('div');
+      dimension.className = `dimension ${className}`;
+      const label = document.createElement('span');
+      label.textContent = `${Math.abs(value).toFixed(2)} mm`;
+      dimension.appendChild(label);
+      return dimension;
+    }
     
     // Load STL model
     function loadSTL(url, index) {
@@ -715,37 +1322,37 @@
       if (!scenes[index]) {
         initViewer(index);
       } else {
-        // Clear existing model
-        scenes[index].children = scenes[index].children.filter(child => 
-          child instanceof THREE.Light || child instanceof THREE.AmbientLight || child instanceof THREE.DirectionalLight);
+        clearViewerScene(index);
       }
       
       const loader = new STLLoader();
       loader.load(url, (geometry) => {
-        // Center the model
         geometry.computeBoundingBox();
-        const center = new THREE.Vector3();
-        geometry.boundingBox.getCenter(center);
         geometry.center();
+        geometry.computeBoundingBox();
+        geometry.computeVertexNormals();
         
-        // Calculate appropriate camera distance
-        const box = new THREE.Box3().setFromObject(new THREE.Mesh(geometry));
-        const size = box.getSize(new THREE.Vector3()).length();
-        const distance = size * 1.5;
-        cameras[index].position.set(0, 0, distance);
-        controls[index].update();
+        const modelSize = geometry.boundingBox.getSize(new THREE.Vector3());
+        addCadReferencePlane(index, modelSize);
         
-        // Create mesh with material
         const material = new THREE.MeshStandardMaterial({
-          color: 0xe0e0e0,
-          metalness: 0.3,
-          roughness: 0.5,
+          color: 0xc3c7c6,
+          metalness: 0.12,
+          roughness: 0.42,
         });
         const mesh = new THREE.Mesh(geometry, material);
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
         
-        // Add the solid mesh to the scene
+        const edges = new THREE.LineSegments(
+          new THREE.EdgesGeometry(geometry, 28),
+          new THREE.LineBasicMaterial({ color: 0x5f6768, transparent: true, opacity: 0.46 })
+        );
+        
         scenes[index].add(mesh);
-        // scenes[index].add(wireframe);
+        scenes[index].add(edges);
+        updateDimensionOverlay(index, modelSize);
+        fitCameraToModel(index, modelSize);
       });
     }
 
@@ -801,14 +1408,18 @@
       }
       
       // Reset UI
-      document.getElementById("scriptOutput1").textContent = "Generating...";
+      setScriptOutput("scriptOutput1", "Generating...", "busy");
       document.getElementById("downloadLinkContainer1").textContent = "";
       document.getElementById("extraScriptContainer1").replaceChildren();
       document.getElementById("errorMessage1").replaceChildren();
       document.getElementById("viewerContainer1").style.display = "none";
       document.getElementById("errorContainer1").style.display = "none";
       for (const index of [2]) {
-        document.getElementById(`scriptOutput${index}`).textContent = compareModels ? "Generating..." : "(script will appear here)";
+        setScriptOutput(
+          `scriptOutput${index}`,
+          compareModels ? "Generating..." : "(script will appear here)",
+          compareModels ? "busy" : "placeholder"
+        );
         document.getElementById(`downloadLinkContainer${index}`).textContent = "";
         document.getElementById(`extraScriptContainer${index}`).replaceChildren();
         document.getElementById(`errorMessage${index}`).replaceChildren();
@@ -836,7 +1447,6 @@
         
         // Process results for each model
         data.results.forEach((result, index) => {
-          const scriptOutput = document.getElementById(`scriptOutput${index+1}`);
           const downloadContainer = document.getElementById(`downloadLinkContainer${index+1}`);
           const errorContainer = document.getElementById(`errorContainer${index+1}`);
           const errorMessage = document.getElementById(`errorMessage${index+1}`);
@@ -852,9 +1462,9 @@
           
           // Display script if present
           if (result.script) {
-            scriptOutput.textContent = result.script;
+            setScriptOutput(`scriptOutput${index+1}`, result.script);
           } else {
-            scriptOutput.textContent = "No script was generated";
+            setScriptOutput(`scriptOutput${index+1}`, "No script was generated", "placeholder");
           }
           
           // Handle error messages
@@ -917,9 +1527,9 @@
       } catch (err) {
         stopLoadingState();
         submitButton.disabled = false;
-        document.getElementById("scriptOutput1").textContent = "Error: " + err.message;
+        setScriptOutput("scriptOutput1", "Error: " + err.message);
         if (compareModels) {
-          document.getElementById("scriptOutput2").textContent = "Error: " + err.message;
+          setScriptOutput("scriptOutput2", "Error: " + err.message);
         }
       }
     });
