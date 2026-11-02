@@ -132,3 +132,12 @@ Run linting with:
 ```bash
 uv run ruff check .
 ```
+
+### Security
+
+Run CADBench only on a trusted local machine. The HTTP and MCP endpoints have no
+authentication and may execute generated FreeCAD scripts and use configured API
+credentials. Do not expose them to untrusted networks. The web UI is served from
+the same origin and does not enable cross-origin browser requests. The debugger
+is disabled. Containers isolate generated scripts from the network and impose
+resource limits, but they are not a complete sandbox for hostile code.

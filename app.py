@@ -9,7 +9,6 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 from flask import Flask, Response, jsonify, request, send_from_directory, stream_with_context
-from flask_cors import CORS
 import httpx
 
 import freecad_runner
@@ -20,7 +19,6 @@ import script_normalizer
 from config import ARTIFACTS_DIR, ARTIFACT_TTL_SECONDS, DEFAULT_MODEL
 
 app = Flask(__name__, static_url_path="", static_folder="static")
-CORS(app)
 
 load_dotenv()
 
@@ -511,4 +509,4 @@ def serve_index():
 
 
 if __name__ == "__main__":
-    app.run(debug=True, port=8000)
+    app.run(debug=False, port=8000)

@@ -142,6 +142,19 @@ def test_make_docker_command_uses_basic_container_limits(tmp_path):
     assert "no-new-privileges" in command
 
 
+def test_untrusted_origin_cannot_use_cross_origin_generation():
+    client = cadbench.app.test_client()
+    response = client.options(
+        "/api/generate",
+        headers={
+            "Origin": "https://attacker.example",
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "content-type",
+        },
+    )
+    assert "Access-Control-Allow-Origin" not in response.headers
+
+
 def test_generate_rejects_empty_prompt():
     client = cadbench.app.test_client()
 
